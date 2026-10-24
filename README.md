@@ -36,6 +36,9 @@ del juego mientras juegas.
 | Caso **HIT** (dummy en *Stand*) | ✅ validado (`1` → `i10`, `+8`, `HIT`) |
 | Medición de la **defensa** (P2 ataca, P1 bloquea) | ✅ funciona (tracker espejo) |
 | Aviso **PUNISH** | ✅ solo cuando el golpe **conecta** dentro de la ventana (jab `i10` sobre `−12`) |
+| **Reloj único** para los dos jugadores | ✅ un solo contador de frame de juego (antes cada tracker llevaba el suyo y **derivaban**) |
+| **Cualquier personaje** | ✅ medición universal; el nombre del golpe es opcional (`#id` por defecto) |
+| **Ventaja adelantada** (`~`) | ✅ muestra la última medición del mismo golpe mientras llega la nueva |
 | Panel de **doble cara** (P1 y P2 a la vez) | ✅ dos filas en el overlay |
 | Knockdown / stagger | ⚠️ se marca como `HIT`, sin distinguir tipos |
 | Modo Practice únicamente | ✅ por diseño |
@@ -83,6 +86,8 @@ python tools/hud.py
 python tools/hud.py --debug                 # además imprime en la consola
 python tools/hud.py --x 60 --y 90           # posición fija
 python tools/hud.py --no-click-through      # permite clics en la ventana
+python tools/hud.py --p1-char bryan --p2-char bruce   # nombres de golpe
+python tools/hud.py --no-predict            # sin el valor adelantado (~)
 
 # 2) tracker en consola (mismo motor, sin ventana)
 python tools/live.py
@@ -94,11 +99,14 @@ python tools/live.py
   suelo del escenario que sobre el cielo, y cada fila tiene una **barra de
   color** (P1 verde azulado, P2 naranja).
 - **Se cierra sola** cuando cierras PPSSPP (el watchdog ve que el proceso ya no
-  está y destruye la ventana). No deja un panel huérfano congelado.
+  está y destruye la ventana). No deja un panel huérfano congelado; si PPSSPP
+  no aparece en 20 s, también se cierra.
 - Solo puede correr **una copia**: la segunda sale con `overlay already running`
   (mutex de Windows). Antes, dos instancias apiladas duplicaban el texto.
-- En el impacto aparece el `startup` con `—` en la ventaja; ~0,3 s después se
-  rellena la ventaja real. Se borra a los 5 s.
+- En el impacto aparece el `startup` y, si ese golpe ya se midió antes, su
+  ventaja adelantada con `~` (p. ej. `~−12`). La ventaja **exacta** se conoce
+  cuando se libera el segundo jugador (~0,5 s después, 30 frames) y sustituye
+  al `~`. Se borra a los 5 s.
 - Colores: verde = ventaja, blanco = neutro, naranja = −1…−9, rojo = −10 o peor,
   azul = golpe limpio en ventaja.
 
@@ -108,6 +116,30 @@ Para inyectar botones desde fuera (pruebas, no necesario para jugar):
 python tools/pad.py square --frames 2
 python tools/pad.py --combo square+triangle
 ```
+
+### 3.1 Cualquier personaje
+
+La medición **no depende del personaje**: el `startup` y la ventaja salen de los
+contadores internos del juego, no de una tabla de movimientos. Lo único que
+cambia entre personajes es el **nombre** del golpe, porque el id de movimiento
+es propio de cada uno.
+
+- Por defecto el HUD muestra el id crudo (`#7`, `#21`, `#12`). Sirve igual para
+  Bryan, Bruce, Kazuya o cualquier otro, y **nunca etiqueta mal** un golpe.
+- Si quieres nombres, crea `tools/notation.json` con un bloque por personaje:
+
+```json
+{
+  "bruce": { "7": "1", "8": "2", "11": "3" }
+}
+```
+
+y arranca con `--p1-char bruce --p2-char bruce`. Los ids se ven en el propio
+HUD (`#7`) o en la `LISTA DE COMANDOS` del modo Practice.
+- `--p1-char bryan` ya viene incluido (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
+- No hay que reiniciar ni elegir personaje antes: el HUD lee la estructura del
+  jugador, no una lista de movimientos. P1 y P2 pueden ser personajes distintos
+  y cada uno lleva su propia tabla.
 
 ---
 
@@ -219,7 +251,39 @@ Por qué este modelo y no el anterior:
    así que se filtra: un ID solo se acepta si sobrevive a un segundo muestreo o
    cruza al frame siguiente. El segmento empieza en el frame en que apareció.
 
-### 4.4 Strings
+### 4.4 Reloj compartido (por qué fallaba el PUNISH)
+
+Los dos trackers (P1 atacando y P2 atacando) **comparten un único reloj de
+frame de juego**, que avanza cuando cambia el contador `+0x7C` de P1.
+
+Antes cada tracker contaba con el contador de **su** jugador. Ese contador
+**repite valores** de vez en cuando (no siempre incrementa: en un arranque de
+animación salta de `10` a `12`, y a veces se queda igual una muestra), así que
+los dos relojes se iban separando: en una sesión real de 10 minutos la deriva
+medida era de **~17 frames**. La comprobación de castigo comparaba un frame de
+P1 con un frame de P2, es decir, dos relojes distintos: la ventana salía
+desplazada y el `PUNISH` no aparecía aunque el golpe entrara.
+
+Con un solo reloj, `u_p` (frame en que P1 queda libre), `u_d` (frame en que el
+dummy queda libre) y el impacto del castigo son directamente comparables:
+
+```
+ventana de castigo = |u_p − u_d|          (la desventaja del dummy)
+PUNISH  ⇔  el golpe conecta (vida)  y  start ≥ u_p  y  impact ≤ u_d + 1
+           y  startup ≤ ventana + 1
+```
+
+### 4.5 Ventaja adelantada (`~`)
+
+La ventaja **exacta** solo se puede conocer cuando se libera el segundo
+jugador, y eso ocurre ~30 frames (0,5 s) después del impacto: es el tiempo de
+recuperación que se está midiendo. Para que el panel no parezca congelado, en
+el impacto se muestra la **última ventaja medida para ese mismo golpe y tipo**
+(`~−12`), y en cuanto llega la medición real se sustituye por el número exacto.
+La caché es por `(id de movimiento, HIT/BLOCK)` y caduca a los 2 minutos.
+`--no-predict` la desactiva.
+
+### 4.6 Strings
 
 En un string el juego cambia el ID **en el mismo frame del primer contacto**
 (Bryan `4,3`: el ID pasa a `12` justo cuando el `4` conecta). El motor:
@@ -238,7 +302,7 @@ impact 4,3  i24   —   BLOCK      ← segundo golpe (string)
 final  4,3  i24  −7   BLOCK      ← ventaja del string
 ```
 
-### 4.5 Overlay
+### 4.7 Overlay
 
 `tkinter` con `-transparentcolor` + `WS_EX_LAYERED | WS_EX_TRANSPARENT`
 (click-through). Se reposiciona cada 700 ms sobre el área cliente de PPSSPP.
@@ -265,7 +329,7 @@ final  4,3  i24  −7   BLOCK      ← ventaja del string
 - Se coloca en `x = gx + (gw − w)/2`, `y = gy + 0.19 · gh`: centrado y por
   debajo de las barras de vida y del cronómetro.
 
-### 4.6 Menú de Practice (ES) — configuración del dummy
+### 4.8 Menú de Practice (ES) — configuración del dummy
 
 El menú de práctica se abre con **START** y **el juego se congela mientras está
 abierto** (el contador `+0x7C` deja de avanzar; no es un cuelgue).
@@ -340,12 +404,21 @@ sobre un string de `−6` sale sin `PUNISH`, porque el dummy ya puede actuar
 cuando el jab llega: la etiqueta no es "he acertado", es "he acertado **antes**
 de que se recupere".
 
-**Regla exacta:** el `PUNISH` se marca **solo cuando el golpe conecta**. En el
-evento `impact` de P1 se comprueba que el contacto del tracker espejo siga
-abierto y sea `BLOCK` (el dummy aún no se ha liberado); si además su `startup`
-cabe en la ventana, el golpe es castigo. No hay aviso previo de la ventana: la
-ventaja solo se conoce en el frame en que el dummy se libera, así que
-cualquier "PUNISH" adelantado aparecía sobre la fila del bloqueo (la del
+**Regla exacta:** el `PUNISH` se marca **solo cuando el golpe conecta** (la vida
+del dummy baja). Se toman del **último bloqueo real** los dos frames de
+liberación (`u_p` = P1 libre, `u_d` = dummy libre) y se exige:
+
+1. el golpe de P1 **empezó** después de que P1 estuviera libre (`start ≥ u_p`);
+2. **conectó** mientras el dummy seguía bloqueado (`impact ≤ u_d + 1`, con un
+   frame de tolerancia);
+3. su `startup` **cabe** en la desventaja del dummy (`startup ≤ |u_p − u_d| + 1`).
+
+Así, un `1` (i10) sobre un `−12` sale `PUNISH`; el mismo `1` sobre un `−6` no,
+porque el dummy ya puede actuar cuando el jab llega: la etiqueta no es "he
+acertado", es "he acertado **antes** de que se recupere". Un golpe que entra
+tarde (fuera de la ventana) tampoco se marca. No hay aviso previo de la
+ventana: la ventaja solo se conoce en el frame en que el dummy se libera, así
+que cualquier "PUNISH" adelantado aparecía sobre la fila del bloqueo (la del
 dummy), que es exactamente lo que no debe pasar.
 
 Cuando el castigo entra, la recuperación del dummy queda cortada, así que su
@@ -360,6 +433,9 @@ número contaminado.
 |---|---|
 | `tools/hud.py` | **el tracker en pantalla** (motor de medición + overlay) |
 | `tools/live.py` | el mismo motor en consola (sin ventana) |
+| `tools/diag.py` | registro en vivo frame a frame + eventos (depuración del castigo) |
+| `tools/test_tracker.py` | autotest determinista del motor, sin PPSSPP (`python tools/test_tracker.py`) |
+| `tools/notation.json` | nombres de golpe por personaje (opcional) |
 | `tools/replay.py` | reproduce una grabación y muestra los eventos del tracker (depuración offline) |
 | `tools/psp_mem.py` | localiza la RAM de PSP dentro del proceso y lee memoria |
 | `tools/inputrec.py` | grabador frame-accurate de pulsaciones + memoria (`--bin` para replay) |
@@ -404,8 +480,9 @@ Las capturas quedan en `.cache/in/`.
    knockdown, roll o stagger.
 6. **`PUNISH` requiere que el dummy haya bloqueado**: si su golpe te conecta
    (estás en hitstun), no hay ventana que enseñar.
-7. **Nombres del dummy**: los ids de movimiento son **por personaje**; los de
-   Bruce se muestran en crudo (`7`, `11`, `14`, `21`) hasta mapearlos.
+7. **Nombres de golpe**: los ids de movimiento son **por personaje**. Por
+   defecto se muestra el id crudo (`#7`, `#21`), que es correcto para
+   cualquiera; los nombres son opcionales (§3.1).
 8. **Solo Practice**: en versus/arcade las direcciones y el flujo de estados
    pueden cambiar.
 
@@ -425,13 +502,15 @@ Implementación:
 1. `Reader.sample()` lee también `mid2`, `s1`, `hp1` y `hp2`.
 2. `mirror(s)` invierte los papeles y alimenta un **segundo `Tracker`**: el
    mismo motor mide a P2 atacando sin duplicar lógica.
-3. Ambos trackers avanzan un frame por muestra, así que sus contadores están
-   sincronizados y sus eventos se pueden comparar directamente.
-4. En el contacto de P1, si el contacto del tracker espejo sigue abierto y era
-   `BLOCK`, el golpe es **PUNISH**: el dummy aún no se había recuperado. El
-   aviso se emite con el impacto, nunca antes.
+3. Los dos trackers reciben **el mismo frame de juego** en cada muestra
+   (`TrackerThread.feed`), así que sus eventos se pueden comparar directamente.
+   Antes cada uno contaba con el contador de su jugador y derivaban.
+4. En el contacto de P1, si el golpe **conecta** y cumple la ventana del último
+   bloqueo (ver §5.1), es **PUNISH**. El aviso se emite con el impacto, nunca
+   antes.
 5. El `final` del tracker espejo se descarta (`—`) si ese contacto fue
-   castigado: su recuperación quedó cortada y el número ya no es el bloqueo.
+   interrumpido por el golpe de P1: su recuperación quedó cortada y el número
+   medido ya no es el bloqueo (antes publicaba basura como `−55`).
 6. El impacto de un golpe se mide en el frame de la **bajada de vida** (la
    reacción llega un frame después); sin eso, todo castigo salía `i+1`.
 
@@ -446,11 +525,13 @@ desaparece.
 
 ### Próximos pasos
 
-1. Mapear los ids de Bruce para poner nombre a sus golpes (hoy salen en crudo).
+1. Mapear los ids de Bruce para poner nombre a sus golpes (`tools/notation.json`).
 2. Corregir el `startup` de los golpes 2+ de un multi-hit con el mismo id
    (usar el reinicio del contador del atacante como inicio de segmento).
 3. Emitir un `final` por golpe de string (hoy solo el último lleva valor).
-4. Probar con el pad real: los tests de castigo usan el daemon de entrada.
+4. Detectar el personaje desde la memoria para cargar su tabla de nombres sola.
+5. Confirmar en vivo el `PUNISH` con el reloj compartido (validado en
+   simulación: `tools/test_tracker.py`).
 
 ---
 

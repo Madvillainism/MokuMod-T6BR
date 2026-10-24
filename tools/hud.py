@@ -18,14 +18,25 @@ Strings (Bryan `4,3`, ...) switch the move id *on* the contact frame, so every
 contact is measured as its own record and a contact that is interrupted by a
 new hit is published without a value (the string is still running).
 
+Both trackers share ONE game-frame clock.  Each player's animation counter
+repeats a value now and then, so a clock per tracker drifted apart and the
+punish window (a P1 frame compared against a P2 frame) was garbage.
+
+Move ids are per character, so nothing is assumed about them: the label is the
+raw id (`#7`) and the measurement is identical for every character.  Optional
+names come from tools/notation.json (`--p1-char`, `--p2-char`).
+
     python tools/hud.py
     python tools/hud.py --x 40 --y 40        # fixed position
     python tools/hud.py --debug              # also print to the console
+    python tools/hud.py --p1-char bryan --p2-char bruce
+    python tools/hud.py --no-predict         # no ~adelanto
 """
 from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import os
 import queue
 import struct
@@ -51,12 +62,36 @@ OFF_MOVEID = 0x144
 OFF_FREE = 0x294          # 1 = able to act, 0 = locked
 OFF_TAIL = 0x295          # rises exactly on the actionable frame
 
-NOTATION = {7: "1", 10: "2", 14: "3", 15: "4", 13: "1+2", 20: "3+4", 12: "4,3"}
+# Move ids are **per character** (id 7 is Bryan's jab but a different move for
+# anyone else), so no table is assumed by default: the HUD prints the raw id
+# ("#7", "#21") and every number it shows is measured, never looked up.  That
+# is what makes the tool work with any character out of the box.
+#
+# Optional labels live in tools/notation.json, one block per character:
+#
+#     {"bryan": {"7": "1", "10": "2", "14": "3"},
+#      "bruce": {"7": "1", "8": "2"}}
+#
+# and are selected with --p1-char / --p2-char.  A few are built in below.
+NOTATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notation.json")
+BUILTIN_NOTATION = {
+    "bryan": {7: "1", 10: "2", 14: "3", 15: "4", 13: "1+2", 20: "3+4", 12: "4,3"},
+}
 
-# Move ids are per character: the dummy (P2) is Bruce, so Bryan's table would
-# label his moves with the wrong names.  Empty for now -> raw id is shown
-# (e.g. "8", "21"); fill in as we map his list.
-BRUCE_NOTATION = {}
+
+def load_notation(name):
+    """Id -> label table for `name`, or {} (raw ids) when unknown."""
+    if not name:
+        return {}
+    table = dict(BUILTIN_NOTATION.get(name.strip().lower(), {}))
+    try:
+        with open(NOTATION_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+        for k, v in (data.get(name.strip().lower()) or {}).items():
+            table[int(k)] = str(v)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return table
 
 IDLE_STATES = {6466, 6482, 14633}   # defender state values while neutral
 BLOCK_STATE = 4178                  # defender state while in blockstun
@@ -82,6 +117,7 @@ class Reader:
         self.buf = None
         self.host = None
         self.dead = False       # emulator gone -> the overlay shuts itself down
+        self.t0 = time.time()   # used for the "no emulator at all" grace period
 
     def ensure(self):
         if self.h is not None:
@@ -101,8 +137,12 @@ class Reader:
         if self.h is None and not self.ensure():
             # Reconnecting failed.  If the process we were reading is gone,
             # the emulator was closed: leave `dead` set so the window closes
-            # instead of leaving a frozen overlay on the desktop.
-            if self.pid is not None and not psp_mem.emulator_alive(self.pid):
+            # instead of leaving a frozen overlay on the desktop.  The same
+            # happens if PPSSPP never appeared (stale overlay blocking the
+            # single-instance mutex for the next run).
+            if self.pid is None:
+                self.dead = time.time() - self.t0 > 20
+            elif not psp_mem.emulator_alive(self.pid):
                 self.dead = True
             return None
         try:
@@ -134,9 +174,9 @@ def mirror(s):
     """Swap both players so the same Tracker can measure P2 attacking.
 
     P2's move id / counter / free flag become the attacker's fields and P1's
-    state / counter / HP become the defender's.  Both trackers see one sample
-    per game frame, so their internal frame counters stay in lockstep and
-    events from the two of them can be compared directly.
+    state / counter / HP become the defender's.  Both trackers are stepped with
+    the same explicit game frame (see TrackerThread.feed), so events from the
+    two of them can be compared directly.
     """
     return {
         "c1": s["c2"],
@@ -161,7 +201,7 @@ class Tracker:
     """
 
     def __init__(self, notation=None):
-        self.notation = NOTATION if notation is None else notation
+        self.notation = {} if notation is None else notation
         self.frame = 0
         self.prev_c1 = None
         self.prev_tail1 = 0
@@ -184,7 +224,9 @@ class Tracker:
 
     # -- helpers --------------------------------------------------------
     def label_for(self, mid):
-        return self.notation.get(mid, str(mid))
+        # Unknown characters keep the raw id: the measurement is universal,
+        # only the pretty name depends on the character's move list.
+        return self.notation.get(mid) or f"#{mid}"
 
     def pick_segment(self, impact):
         """Segment a contact belongs to.
@@ -202,6 +244,7 @@ class Tracker:
     def event(self, phase, contact, adv):
         return {
             "phase": phase,
+            "frame": self.frame,
             "impact": contact["impact"],
             "start": contact["start"],
             "startup": max(1, contact["impact"] - contact["start"] + 1),
@@ -209,6 +252,8 @@ class Tracker:
             "kind": contact["kind"],
             "label": contact["label"],
             "mid": contact.get("mid", 0),
+            "p1u": contact.get("p1u"),
+            "p2u": contact.get("p2u"),
             "punished": bool(contact.get("punished")),
         }
 
@@ -218,10 +263,20 @@ class Tracker:
         self.contact = None
 
     # -- main -----------------------------------------------------------
-    def step(self, s):
+    def step(self, s, frame=None):
+        """Advance one sample.
+
+        `frame` lets several trackers share a single game-frame clock.  That is
+        essential for comparing events from two trackers: each player's
+        animation counter repeats a value now and then, so a clock driven by
+        one counter per tracker drifts apart over a session and every
+        cross-tracker comparison (the punish window) becomes meaningless.
+        """
         events = []
 
-        if s["c1"] != self.prev_c1:
+        if frame is not None:
+            self.frame = frame
+        elif s["c1"] != self.prev_c1:
             self.frame += 1
             self.prev_c1 = s["c1"]
 
@@ -315,27 +370,155 @@ class Tracker:
 
 
 class TrackerThread(threading.Thread):
-    def __init__(self, out, debug=False):
+    """Measures both sides on one shared game-frame clock.
+
+    The two trackers used to count frames with their own player's animation
+    counter.  Those counters repeat a value now and then, so the clocks drifted
+    apart (measured: ~17 frames after a few minutes) and the punish window -
+    which compares a P1 frame against a P2 frame - was meaningless.  A single
+    clock feeds both trackers now, so every cross-side comparison is exact.
+    """
+
+    WINDOW = 60          # sanity bound between a block and the punish attempt
+    CACHE_TTL = 120.0    # seconds a measured value is reused as a prediction
+
+    def __init__(self, out, debug=False, p1_notation=None, p2_notation=None,
+                 predict=True):
         super().__init__(daemon=True)
         self.out = out
         self.debug = debug
+        self.predict = predict
         self.rd = Reader()
-        self.t1 = Tracker()      # P1 attacks, P2 defends
-        self.t2 = Tracker(BRUCE_NOTATION)   # P2 attacks, P1 defends (mirrored)
+        self.t1 = Tracker(p1_notation)      # P1 attacks, P2 defends
+        self.t2 = Tracker(p2_notation)      # P2 attacks, P1 defends (mirrored)
         self.running = True
+        self.clock = 0
+        self.clock_c = None
+        self.last_block = None   # last BLOCK exchange, kept after its final
+        self.cache = {}          # (move id, kind) -> (advantage, timestamp)
 
+    # -- punish ---------------------------------------------------------
+    def punish_reason(self, ev):
+        """Is `ev` a punish?  Returns "ok" or the reason it is not.
+
+        A punish is a hit that lands *while the dummy is still recovering* from
+        the move it used, and that started after P1 was free to act.  Both
+        frames come from the shared clock, so they are directly comparable.
+        """
+        lb = self.last_block
+        if lb is None:
+            return "sin bloqueo previo"
+        if lb["impact"] >= ev["impact"]:
+            return "bloqueo posterior"
+        if ev["impact"] - lb["impact"] > self.WINDOW:
+            return f"bloqueo viejo (+{ev['impact'] - lb['impact']}f)"
+        if ev["kind"] != "HIT":
+            return f"no conecto ({ev['kind']})"
+        u_p = lb.get("p2u")      # P1 free (defender in the mirror)
+        u_d = lb.get("p1u")      # dummy free (attacker in the mirror)
+        if u_d is None and self.t2.contact is not lb:
+            # The block contact was dropped (new hit of the string / timeout)
+            # without ever seeing the dummy unlock: we cannot claim anything.
+            return "bloqueo sin liberar"
+        if u_p is not None and ev["start"] < u_p:
+            return f"empezo en stun ({ev['start']}<{u_p})"
+        if u_d is not None:
+            if ev["impact"] > u_d + 1:
+                return f"tarde ({ev['impact']}>{u_d}+1)"
+            if u_p is not None and ev["startup"] > abs(u_p - u_d) + 1:
+                return f"i{ev['startup']} no cabe en {u_p - u_d:+d}"
+        return "ok"
+
+    # -- fast feedback --------------------------------------------------
+    def _key(self, ev):
+        # The move id is per character, so the side goes in the key: P1 and P2
+        # can be different characters and share ids.
+        return (ev["side"], ev["mid"], ev["kind"])
+
+    def predicted(self, ev):
+        """Last measured value for this move, shown while the new one is
+        being measured (the exact number replaces it a few frames later)."""
+        if not self.predict:
+            return None
+        item = self.cache.get(self._key(ev))
+        if item is None:
+            return None
+        adv, when = item
+        return adv if time.time() - when <= self.CACHE_TTL else None
+
+    def remember(self, ev):
+        adv = ev["adv"]
+        if adv is not None and abs(adv) <= 40:
+            self.cache[self._key(ev)] = (adv, time.time())
+            return adv
+        return self.predicted(ev)
+
+    # -- output ---------------------------------------------------------
     def emit(self, ev):
         self.out.put(ev)
         if not self.debug:
             return
         adv = "-" if ev["adv"] is None else f"{ev['adv']:+d}"
-        extra = " PUNISH" if ev.get("punish") else ""
+        pred = "" if ev.get("predict") is None else f" ~{ev['predict']:+d}"
+        tag = ""
+        if ev.get("punish"):
+            tag = "  PUNISH"
+        elif ev["phase"] == "impact" and ev.get("punish_why") not in (None, "ok"):
+            tag = f"  ({ev['punish_why']})"
         print(
-            f"  {ev['side']} {ev['phase']:6s} {ev['label']:4s} "
-            f"i{ev['startup']:<3d}{adv:>4} {ev['kind']}{extra}"
+            f"  f{ev['frame']:6d} {ev['side']} {ev['phase']:6s} {ev['label']:5s} "
+            f"i{ev['startup']:<3d}{adv:>4} {ev['kind']:5s}{pred}{tag}"
             f"  [{ev['start']}->{ev['impact']}]",
             flush=True,
         )
+
+    def feed(self, s):
+        """Process one sample: advance the clock and run both trackers.
+
+        Split out of `run()` so the offline logger (tools/diag.py) can drive the
+        exact same pipeline.
+        """
+        # One clock for both sides.  P1's animation counter changes exactly
+        # once per game frame and freezes only when the game does.
+        if s["c1"] != self.clock_c:
+            self.clock += 1
+            self.clock_c = s["c1"]
+
+        # P1 as attacker.
+        for ev in self.t1.step(s, self.clock):
+            ev["side"] = "P1"
+            if ev["phase"] == "impact":
+                why = self.punish_reason(ev)
+                ev["punish"] = why == "ok"
+                ev["punish_why"] = why
+                ev["predict"] = self.predicted(ev)
+                c2 = self.t2.contact
+                if c2 is not None and c2["kind"] == "BLOCK" and ev["kind"] == "HIT":
+                    # P1's hit cut the dummy's recovery short, so its block
+                    # measurement is no longer the block value (it used to
+                    # publish nonsense like -55 from a spurious unlock).
+                    c2["punished"] = True
+                    # One block, one punish: a combo hit must not be flagged
+                    # again against the same exchange.
+                    self.last_block = None
+            else:
+                ev["predict"] = self.remember(ev)
+            self.emit(ev)
+
+        # P2 as attacker (mirrored): the defense side.
+        for ev in self.t2.step(mirror(s), self.clock):
+            ev["side"] = "P2"
+            if ev["phase"] == "impact":
+                ev["predict"] = self.predicted(ev)
+                if ev["kind"] == "BLOCK":
+                    self.last_block = self.t2.contact
+            else:
+                # Drop the interrupted value *before* caching it: its recovery
+                # was cut short, so it is not this move's real advantage.
+                if ev["punished"]:
+                    ev["adv"] = None
+                ev["predict"] = self.remember(ev)
+            self.emit(ev)
 
     def run(self):
         fails = 0
@@ -354,33 +537,7 @@ class TrackerThread(threading.Thread):
                 time.sleep(0.05)
                 continue
             fails = 0
-
-            # P1 as attacker: normal measurement.
-            for ev in self.t1.step(s):
-                ev["side"] = "P1"
-                # P2 is still inside its own move (contact open = it has not
-                # unlocked yet), so whatever P1 lands now is a punishment.
-                c2 = self.t2.contact
-                if (
-                    ev["phase"] == "impact"
-                    and c2 is not None
-                    and c2["kind"] == "BLOCK"
-                    and 0 <= ev["impact"] - c2["impact"] <= 60
-                ):
-                    ev["punish"] = True
-                    # The dummy's recovery is about to be cut short by this
-                    # hit, so its own final advantage is no longer the block
-                    # value of the string: flag it and drop that number.
-                    c2["punished"] = True
-                self.emit(ev)
-
-            # P2 as attacker: mirrored measurement (the defense side).
-            for ev in self.t2.step(mirror(s)):
-                ev["side"] = "P2"
-                if ev["phase"] == "final" and ev["punished"]:
-                    ev["adv"] = None
-                self.emit(ev)
-
+            self.feed(s)
             time.sleep(0.0005)
 
 
@@ -478,6 +635,12 @@ def main():
     ap.add_argument("--y", type=int, default=None)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--no-click-through", action="store_true")
+    ap.add_argument("--p1-char", default=None,
+                    help="tabla de notación para P1 (bryan, o una clave de tools/notation.json)")
+    ap.add_argument("--p2-char", default=None,
+                    help="tabla de notación para P2")
+    ap.add_argument("--no-predict", action="store_true",
+                    help="no adelantar el valor medido la última vez")
     a = ap.parse_args()
 
     enable_dpi_awareness()
@@ -488,7 +651,13 @@ def main():
         return
 
     results: queue.Queue = queue.Queue()
-    tracker = TrackerThread(results, debug=a.debug)
+    tracker = TrackerThread(
+        results,
+        debug=a.debug,
+        p1_notation=load_notation(a.p1_char),
+        p2_notation=load_notation(a.p2_char),
+        predict=not a.no_predict,
+    )
     tracker.start()
 
     root = tk.Tk()
@@ -579,14 +748,24 @@ def main():
                     cell["punish"] = bool(res.get("punish"))
                     put(cell["move"], res.get("label", ""), C_DIM)
                     put(cell["startup"], f"i{res['startup']}", "#F2F2F2")
-                    put(cell["value"], "—", C_DIM)
+                    pred = res.get("predict")
+                    # The exact advantage is only known when the *later* player
+                    # unlocks (~0.5 s).  Until then show the value measured the
+                    # last time for this move, marked with "~".
+                    if pred is None:
+                        put(cell["value"], "—", C_DIM)
+                    else:
+                        put(cell["value"], f"~{pred:+d}", C_DIM)
                     if cell["punish"]:
                         put(cell["kind"], "PUNISH", C_BAD)
                     else:
                         put(cell["kind"], res.get("kind", ""), C_DIM)
                 elif phase == "final":
-                    put(cell["value"], "—" if adv is None else f"{adv:+d}",
-                        colour(adv, res.get("kind")))
+                    if adv is None and res.get("predict") is not None:
+                        put(cell["value"], f"~{res['predict']:+d}", C_DIM)
+                    else:
+                        put(cell["value"], "—" if adv is None else f"{adv:+d}",
+                            colour(adv, res.get("kind")))
                     if cell["punish"]:
                         put(cell["kind"], "PUNISH", C_BAD)
                     else:

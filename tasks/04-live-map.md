@@ -194,8 +194,8 @@ En bloqueo el mismo `1` mide `+1` y se etiqueta `BLOCK`.
 
 El dummy P2 ataca y P1 bloquea. Un **segundo `Tracker`** recibe la muestra
 invertida (`mirror`), así que el mismo motor mide al atacante P2 sin duplicar
-lógica. Los dos trackers avanzan un frame por muestra, así que sus eventos se
-comparan directamente.
+lógica. Los dos trackers reciben **el mismo frame de juego** (`feed`), así que
+sus eventos se comparan directamente.
 
 ```
 P2 ataca        contacto ────────────────┐
@@ -211,22 +211,37 @@ P2 recupera                    │       │
 | `11, 21` | i14 / i24 | **−6** |
 | `7, 8, 7, 14` | i11 / i13 / i20 / i20 | **−12** |
 
-**PUNISH**: solo se marca **cuando el golpe conecta**. En el `impact` de P1 se
-comprueba que el contacto del tracker espejo siga abierto y sea `BLOCK` (el
-dummy aún no se ha liberado). Validado con un jab sobre el ender `−15`:
-`P1 1 i10 +8 HIT PUNISH`. No se avisa de la ventana antes de tiempo: la ventaja
-solo se conoce en el frame en que el dummy se libera.
+**PUNISH**: solo se marca **cuando el golpe conecta**. Se guarda el último
+bloqueo real (aunque ya haya publicado su `final`) y se exige, con el reloj
+compartido:
+
+1. `start ≥ u_p` (P1 empezó después de quedar libre);
+2. `impact ≤ u_d + 1` (conectó mientras el dummy seguía bloqueado);
+3. `startup ≤ |u_p − u_d| + 1` (el golpe cabe en la desventaja del dummy).
+
+Validado con un jab sobre el ender `−15`: `P1 1 i10 +8 HIT PUNISH`. No se avisa
+de la ventana antes de tiempo: la ventaja solo se conoce en el frame en que el
+dummy se libera.
 
 Cuando el castigo entra, el `final` del dummy se publica sin valor (`—`):
-su recuperación quedó cortada y el número del bloqueo ya no aplica.
+su recuperación quedó cortada y el número del bloqueo ya no aplica (antes se
+publicaban valores basura como `−55` sacados de un pulso espurio de la cola
+durante el hitstun).
 
-**Trampa resuelta**: `2114` es a la vez el estado de ataque y de **hitstun**
-(la vida de P2 baja y su contador se reinicia). No sirve para separar ataque de
-reacción. El discriminante válido es el **move id del defensor**: si está
-atacando (`+0x144 ≠ 0`), su cambio de estado no es una reacción.
+**Reloj compartido (fallo de raíz, corregido).** Cada tracker contaba frames
+con el contador `+0x7C` de *su* jugador. Ese contador **repite valores** (salta
+de `10` a `12`, se queda igual una muestra en algunos arranques), así que los
+dos relojes derivaban: **~17 frames** en una sesión real de 10 minutos
+(6980 frames registrados). La comprobación de castigo comparaba entonces un
+frame de P1 con un frame de P2, es decir, dos relojes distintos, y la ventana
+salía desplazada. Ahora `TrackerThread.feed` mantiene **un solo contador** (el
+de P1, que cambia exactamente una vez por frame de juego) y se lo pasa a los
+dos trackers con `Tracker.step(s, frame)`.
 
-**Efecto colateral**: si el castigo entra, la recuperación del dummy se corta y
-su `final` ya no mide el bloqueo → se publica sin valor (`—`).
+**Filtro de contacto**: `2114` es a la vez ataque y **hitstun**, así que el
+estado no sirve para separar ataque de reacción. Las únicas señales válidas son
+la **vida que baja** (golpe) y la **guardia `4178`** (bloqueo); el `move id`
+del defensor ya no se usa.
 
 ---
 
@@ -246,6 +261,9 @@ su `final` ya no mide el bloqueo → se publica sin valor (`—`).
 | Herramienta | Función |
 |---|---|
 | `tools/psp_mem.py` | localiza la RAM PSP en el proceso y lee memoria |
+| `tools/hud.py` | motor de medición + overlay (reloj compartido, PUNISH, `~`) |
+| `tools/diag.py` | registro en vivo frame a frame + eventos con motivo de PUNISH |
+| `tools/test_tracker.py` | autotest determinista del motor (sin PPSSPP) |
 | `tools/t6scan.py` | snapshots, diffs, búsquedas, películas y series temporales |
 | `tools/t6padd.mjs` | daemon: una sola conexión WS + bus JSON en `127.0.0.1:8098` |
 | `tools/pad.py` | cliente del daemon (botones, peticiones, esperas) |
@@ -266,7 +284,10 @@ python tools/t6scan.py series jab 0x08C0793C --type u32
 ## 7. Preguntas abiertas
 
 1. ¿El flag `+0x295` sube siempre en el frame accionable, o hay movimientos con
-   blend especial (cancelaciones, stances)?
+   blend especial (cancelaciones, stances)? Se ha visto **pulsar** en muestras
+   sueltas (no solo en el frame accionable), por eso el desbloqueo se toma del
+   primer flanco 0→1 tras el contacto y se descarta el contacto si un golpe lo
+   interrumpe.
 2. Semántica exacta de `+0x144` / `+0x168` / `+0x180` / `+0x158` (el tracker solo
    usa `+0x144`).
 3. Valores de estado: `4178` = blockstun, `2114` = ataque **y** hitstun (no
