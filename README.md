@@ -110,6 +110,10 @@ python tools/live.py
 - Colores: verde = ventaja, blanco = neutro, naranja = −1…−9, rojo = −10 o peor,
   azul = golpe limpio en ventaja.
 
+📘 **Guía de pruebas paso a paso** (lanzar PPSSPP desde el escritorio y el HUD
+desde VS Code, con la batería de casos y qué significa cada mensaje de la
+consola): [`GUIA-PRUEBAS.md`](GUIA-PRUEBAS.md).
+
 Para inyectar botones desde fuera (pruebas, no necesario para jugar):
 
 ```powershell
@@ -565,6 +569,7 @@ desaparece.
   error de `+0x400000` en las direcciones; corregido en el 04).
 - `tasks/03-lua-overlay.md` — diseño del overlay en LuaJIT (alternativa no usada).
 - `tasks/04-live-map.md` — **mapa de memoria y modelo de medición vigentes**.
+- `GUIA-PRUEBAS.md` — cómo probarlo tú mismo y qué significa cada mensaje.
 
 ---
 
