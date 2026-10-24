@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "lua": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "lua/SKILL.md",
+      "computedHash": "6be95e440b664b367a4b8b1218515167bb829b66c5629b4f79f070bea8225d85"
+    },
+    "protocol-reverse-engineering": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/reverse-engineering/skills/protocol-reverse-engineering/SKILL.md",
+      "computedHash": "d9cb9fa166ba7a93ed254d72d6d872d84b85c675c3019aa7bc5bea4c441835dc"
+    },
+    "reverse-engineer-anything": {
+      "source": "morluto/rea",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/reverse-engineer-anything/SKILL.md",
+      "computedHash": "1cb282352bc6f94cd58df0b46ec1591bf0c276ffc64dd56ba0cf1a3c0e0df9c4"
+    }
+  }
+}

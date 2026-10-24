@@ -1,0 +1,13 @@
+# Datos de trabajo: grabaciones, savestates, capturas y logs
+.cache/
+captures/
+
+# Python
+__pycache__/
+*.pyc
+
+# Binarios de terceros (LuaJIT, del intento de overlay en Lua)
+tools/luajit/
+
+# Configuración local de skills
+.agents/
