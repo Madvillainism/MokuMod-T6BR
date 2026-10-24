@@ -15,7 +15,7 @@ del juego mientras juegas.
         └──────────────────────────────────────┘
                   ↑ flota sobre PPSSPP, sin bordes
         ┌──────────────────────────────────────┐
-        │ P1   1     i11    +8    PUNISH       │  ← castigo (rojo)
+        │ P1   1     i10    +8    PUNISH       │  ← castigo (rojo)
         └──────────────────────────────────────┘
 ```
 
@@ -281,9 +281,15 @@ abierto** (el contador `+0x7C` deja de avanzar; no es un cuelgue).
 | `ANÁLISIS DE GOLPES` | muestra daño/ventana en pantalla. |
 
 En entrenamiento defensivo aparece el aviso **`SELECT + R EMPEZAR`** (y `PARAR`
-mientras corre). Al enviar `SELECT + R` con el menú cerrado, el juego abrió el
-menú de práctica: probablemente `SELECT` abre el menú y `R` no llegó en el mismo
-frame. Pendiente de afinar el combo.
+mientras corre). El drill se maneja desde fuera con:
+
+```powershell
+python tools/pad.py --combo select+rtrigger
+```
+
+`rtrigger` es el nombre del botón R en el daemon (`r`/`l` no existen: son
+`rtrigger`/`ltrigger`). El mismo comando lo para. El HUD no lo necesita: solo lo
+usan los scripts de prueba.
 
 ---
 
@@ -385,9 +391,9 @@ Las capturas quedan en `.cache/in/`.
    id (p. ej. el `14` de Bruce conecta varias veces), no hay segmento nuevo y
    los golpes 2+ muestran el `startup` acumulado (`i51`, `i52`). El primero es
    correcto y la ventaja del último también.
-2. **Ventana `HIT` de 3 frames**: si un bloqueo llega ≤3 frames después de un
-   golpe, puede etiquetarse como `HIT`. Es el precio de leer la vida 1 frame
-   antes que el estado.
+2. **Bloqueo con estados exóticos**: la detección de bloqueo usa el estado
+   `4178` (guardia de pie, el del entrenamiento). Un bloqueo agachado con otro
+   valor de estado no se reconocería; con los golpes de la lista actual no pasa.
 3. **±1 frame real**: no es ruido del medidor. Depende del frame activo que
    conecta y del hitstop; aparece también en la frame data oficial como rangos.
 4. **Strings muy rápidos**: si dos golpes ocurren dentro de la misma animación
@@ -416,7 +422,7 @@ ventaja del dummy = U1 − U2   (negativa si es castigable)
 
 Implementación:
 
-1. `Reader.sample()` lee también `mid2`, `s1`, `hp1` y `def_mid`.
+1. `Reader.sample()` lee también `mid2`, `s1`, `hp1` y `hp2`.
 2. `mirror(s)` invierte los papeles y alimenta un **segundo `Tracker`**: el
    mismo motor mide a P2 atacando sin duplicar lógica.
 3. Ambos trackers avanzan un frame por muestra, así que sus contadores están

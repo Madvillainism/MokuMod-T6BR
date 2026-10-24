@@ -101,9 +101,9 @@ reacción del defensor llega **un frame después** de que el hitbox conecta:
 | 13 | 11 | 7 | 172 | **2114** |
 
 `12 − 3 + 1 = 10` → `i10` (jab de Bryan). Si se mide en el frame de la reacción
-sale `i11`. Por eso, cuando el contacto cae a ≤1 frame de una bajada de vida,
-el impacto es `hp_drop_frame`. En bloqueo no hay bajada de vida y la reacción
-llega en el frame del impacto, así que se usa el frame de la reacción.
+sale `i11`. Por eso el golpe se detecta **en la bajada de vida**. En bloqueo no
+hay bajada: la guardia (`4178`) y el reinicio del contador del defensor llegan en
+el **mismo** frame (comprobado frame a frame), así que ahí el impacto es ese.
 
 Verificado contra TekkenDocs (Bryan, T6): `1` → 10, `2` → 10, `3` → 16,
 `4` → 12, `1+2` → 14, `3+4` → 18.
