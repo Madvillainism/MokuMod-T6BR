@@ -180,9 +180,9 @@ final  4,3  i24  −7   BLOCK
 
 ### On hit (validado)
 
-Con el dummy en `DE PIE` (sin guardia) la vida baja **~1 frame antes** del
-cambio de estado, así que el tracker recuerda ese frame (`hp_drop_frame`) y
-etiqueta `HIT` si el contacto cae en los 3 frames siguientes.
+Con el dummy en `DE PIE` (sin guardia) la vida baja en el frame del impacto; el
+estado de reacción llega uno después. El tracker marca `HIT` **en la bajada de
+vida** y toma ese frame como impacto (así el `1` mide `i10`, no `i11`).
 
 | Move | startup | ventaja en golpe | oficial |
 |---|---|---|---|
