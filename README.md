@@ -142,6 +142,9 @@ python tools/live.py
 desde VS Code, con la batería de casos y qué significa cada mensaje de la
 consola): [`GUIA-PRUEBAS.md`](GUIA-PRUEBAS.md).
 
+📄 **Guía de uso en texto plano** (para abrir en el Bloc de notas):
+[`GUIA-USO.txt`](GUIA-USO.txt).
+
 Para inyectar botones desde fuera (pruebas, no necesario para jugar):
 
 ```powershell

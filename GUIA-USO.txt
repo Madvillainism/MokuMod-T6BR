@@ -1,0 +1,173 @@
+==============================================================
+ FRAMEMOD - HUD de frame data para Tekken 6 (PSP / PPSSPP)
+ Guia de uso rapida
+==============================================================
+
+Que es
+------
+Una ventana transparente que se coloca encima de PPSSPP y muestra, en vivo,
+el startup y la ventaja (on block / on hit) de cada golpe: lo mide leyendo la
+memoria del juego, no de una tabla. Funciona con cualquier personaje.
+
+Dos filas: P1 (verde) y P2 (naranja). Cada fila muestra:
+
+    movimiento   startup   ventaja   etiqueta
+
+    P1  1          i10       +8       HIT
+
+Etiquetas:
+    TABLA    dato teorico de la tabla local (gris, aun sin medir)
+    HIT      el golpe conecto
+    BLOCK    el rival lo bloqueo
+    PUNISH   castigo: conecto dentro de la ventana de recuperacion
+    KND      derribo (no hay ventaja numerica: se muestra "-")
+
+Colores de la ventaja:
+    verde    ventaja (+)
+    blanco   neutro (0)
+    naranja  -1 a -9
+    rojo     -10 o peor
+    azul     golpe limpio en ventaja
+
+El "~" (ej. ~-12) es el valor medido la ultima vez para ese golpe, mientras se
+esta midiendo el nuevo. El numero exacto lo sustituye medio segundo despues.
+
+--------------------------------------------------------------
+ 1. Arranque rapido
+--------------------------------------------------------------
+1) Abre PPSSPP y carga Tekken 6 en modo PRACTICA (con el estado guardado que
+   uses normalmente).
+
+2) Abre una consola en la carpeta del proyecto y lanza:
+
+       python tools/hud.py
+
+   Si usas el ejecutable empaquetado:
+
+       dist\FRAMEMOD\FRAMEMOD.exe
+
+3) Vuelve a PPSSPP. El HUD aparece solo encima del juego, bajo las barras de
+   vida. Es transparente y "click-through": no roba clics ni teclas.
+
+Se cierra solo al cerrar PPSSPP. Solo puede haber una copia: si lanzas otra,
+sale con "overlay already running".
+
+--------------------------------------------------------------
+ 2. Opciones utiles
+--------------------------------------------------------------
+    python tools/hud.py --debug
+        Ademas imprime cada evento en la consola (util para comprobar).
+
+    python tools/hud.py --p1-char bryan --p2-char bruce
+        Usa la tabla local y los nombres reales de los golpes.
+
+    python tools/hud.py --no-table
+        Solo memoria: no proyecta el dato teorico de la tabla.
+
+    python tools/hud.py --no-predict
+        No muestra el "~" adelantado.
+
+    python tools/hud.py --x 60 --y 90
+        Posicion fija en pantalla (esquinas en pixeles).
+
+    python tools/hud.py --no-click-through
+        Permite pinchar la ventana (para depurar; pierdes los clics del juego).
+
+    python tools/hud.py --settings
+        Abre el panel de ajustes al arrancar (igual que pulsar F8).
+
+    python tools/hud.py --p1-char bryan --learn
+        Aprende IDs de movimientos nuevos: cuando aparece un id desconocido,
+        pregunta la notacion por consola (Enter = omitir) y guarda el mapeo.
+
+--------------------------------------------------------------
+ 3. Panel de ajustes (F8)
+--------------------------------------------------------------
+Pulsa F8 en cualquier momento (la tecla se puede cambiar en el propio panel,
+F7-F12). Permite:
+
+    - mover el HUD (X / Y, vacio = colocado automatico sobre PPSSPP)
+    - opacidad (30-100 %)
+    - tamano de fuente
+    - siempre encima (always on top)
+    - tecla de acceso al panel
+
+"Guardar" aplica y escribe config/hud.json. "Aplicar" prueba sin guardar.
+
+--------------------------------------------------------------
+ 4. Modo demo (sin PPSSPP)
+--------------------------------------------------------------
+Reproduce una grabacion guardada en .cache/in/ sobre el overlay real. Sirve
+para comprobar que la ventana, los colores y la tabla funcionan:
+
+    python tools/hud.py --replay val_1_0
+    python tools/hud.py --replay s43a --speed 2     (doble de velocidad)
+    python tools/hud.py --replay val_1_0 --speed 0  (sin esperas)
+
+Se cierra solo unos segundos despues de terminar la grabacion.
+
+--------------------------------------------------------------
+ 5. Probar sin mando (inyectar botones)
+--------------------------------------------------------------
+Si no puedes usar el mando, se pueden inyectar pulsaciones por el debugger de
+PPSSPP (requiere "Remote Debugger" activado, ya lo esta en este perfil):
+
+    python tools/pad.py --daemon        arranca el bus (127.0.0.1:8098)
+    python tools/pad.py square          pulsa 1 (jab)
+    python tools/pad.py cross           pulsa 3
+    python tools/pad.py circle          pulsa 4
+    python tools/pad.py --combo square+triangle     1+2
+    python tools/demo_live.py moves     secuencia 1, 3, 4, 1+2, 3+4
+    python tools/demo_live.py punish    arranca el drill, bloquea y castiga
+
+Mapeo PSP: square=1, triangle=2, cross=3, circle=4.
+
+--------------------------------------------------------------
+ 6. Problemas y soluciones
+--------------------------------------------------------------
+No aparece la ventana:
+    - PPSSPP tiene que estar abierto ANTES o durante los primeros 20 s.
+    - Comprueba que no haya otra copia: "overlay already running".
+    - Prueba "python tools/hud.py --debug" para ver errores en consola.
+
+La ventana esta pero no hay numeros:
+    - Debe estar en PRACTICA (el HUD no mide en versus/online).
+    - Si el golpe no conecta no hay evento: solo veras el "start".
+    - Comprueba que PPSSPP es la version con debugger (1.19.x de este perfil).
+
+Sale "#25" en vez del nombre del golpe:
+    - Ese ID no esta mapeado para el personaje. La medicion es correcta igual.
+    - Mapealo con --learn o edita data/mappings/<personaje>_map.json.
+
+El startup sale mas alto de lo normal:
+    - En strings (1,1,3...) el segundo golpe se mide desde el cambio de Move
+      ID, no desde el inicio del string, y puede ser una variante con datos
+      distintos. Para datos limpios, prueba el golpe suelto.
+    - Si vienes de un derribo, espera a que el rival se levante del todo.
+
+La ventaja no aparece (muestra "-"):
+    - Tras un KND (derribo) no hay ventaja numerica: es lo correcto.
+    - Si el castigo corto la recuperacion, la fila del rival muestra "-".
+
+El HUD se cierra solo:
+    - PPSSPP se cerro o se colgo: el watchdog cierra el overlay a los 20 s.
+
+El bus dice "bus has no PPSSPP connection":
+    - PPSSPP ya no esta abierto (o el debugger esta desactivado).
+
+--------------------------------------------------------------
+ 7. Donde esta cada cosa
+--------------------------------------------------------------
+    tools/hud.py            el HUD (motor + ventana)
+    tools/live.py           el mismo motor en consola, sin ventana
+    tools/pad.py            inyectar botones por el bus
+    tools/demo_live.py      demos de golpes y de PUNISH
+    tools/replay.py         repetir una grabacion por consola
+    data/compiled/*.json    tablas por personaje (ID -> movimiento)
+    data/mappings/*.json    ID del juego -> notacion
+    data/states.json        estados que cuentan como bloqueo
+    config/hud.json         ajustes del panel (se crea al guardar)
+    .cache/live_hud.out     log de eventos si lanzas con --debug
+
+Documentacion completa: README.md y GUIA-PRUEBAS.md.
+Ultima sesion de validacion en vivo: tasks/06-sesion-live-2026-10-27.md.
