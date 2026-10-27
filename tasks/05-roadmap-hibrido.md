@@ -88,3 +88,13 @@ python tools/mapper.py --all
 ```
 
 La batería manual está en [`../GUIA-PRUEBAS.md`](../GUIA-PRUEBAS.md) §4.8–4.11.
+
+## 8. Desviaciones conscientes del documento
+
+| Documento | Implementado | Motivo |
+|---|---|---|
+| `BeautifulSoup` para el scraper | `html.parser` de la biblioteca estándar | cero dependencias: el `.exe` y el repo funcionan sin `pip install` |
+| Lectura posicional de columnas | lectura **por cabecera** + fallback posicional | una columna nueva en la fuente no desplaza todos los datos |
+| Instalador MSI/Inno Setup | `.exe` portable (`dist\FRAMEMOD\`) | mismo objetivo (usuario sin Python) sin instalador ni permisos de administrador |
+| Asignación de teclas | tecla del panel (F7–F12) configurable | el resto de la entrada se juega en PPSSPP; el HUD no necesita atajos |
+| Prompt de `--learn` sobre el overlay | prompt en consola | el overlay es *click-through* y no puede recibir texto sin romper el juego |
