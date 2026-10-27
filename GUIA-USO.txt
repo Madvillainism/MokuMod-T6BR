@@ -60,6 +60,11 @@ sale con "overlay already running".
 
     python tools/hud.py --p1-char bryan --p2-char bruce
         Usa la tabla local y los nombres reales de los golpes.
+        Solo hace falta la primera vez: el personaje se recuerda en
+        config/hud.json y despues basta con "python tools/hud.py".
+        "python tools/hud.py --p1-char none" lo borra.
+        Sin personaje el HUD mide igual, pero muestra "#7" en vez del nombre
+        y no proyecta el dato teorico de la tabla.
 
     python tools/hud.py --no-table
         Solo memoria: no proyecta el dato teorico de la tabla.

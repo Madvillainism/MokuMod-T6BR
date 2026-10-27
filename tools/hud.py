@@ -870,6 +870,8 @@ DEFAULT_CONFIG = {
     "font_size": 28,
     "always_on_top": True,
     "hotkey_settings": "F8",
+    "p1_char": None,
+    "p2_char": None,
 }
 
 VK = {"F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B}
@@ -986,9 +988,10 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--no-click-through", action="store_true")
     ap.add_argument("--p1-char", default=None,
-                    help="personaje de P1 (tabla de datos y notación: bryan, jin...)")
+                    help="personaje de P1 (tabla de datos y notación: bryan, jin...). "
+                         "Se recuerda en config/hud.json; 'none' lo borra")
     ap.add_argument("--p2-char", default=None,
-                    help="personaje de P2")
+                    help="personaje de P2 (también se recuerda; 'none' lo borra)")
     ap.add_argument("--no-predict", action="store_true",
                     help="no adelantar el valor medido la última vez")
     ap.add_argument("--no-table", action="store_true",
@@ -1018,6 +1021,17 @@ def main():
         cfg["x"] = a.x
     if a.y is not None:
         cfg["y"] = a.y
+
+    # El personaje se recuerda en config/hud.json: `--p1-char bryan` una vez y
+    # las siguientes veces basta con `python tools/hud.py`.  `--p1-char none`
+    # lo borra.
+    for key, given in (("p1_char", a.p1_char), ("p2_char", a.p2_char)):
+        if given is not None:
+            value = given.strip().lower()
+            cfg[key] = value if value and value not in ("none", "off", "-") else None
+            save_config(cfg)
+    a.p1_char = cfg.get("p1_char")
+    a.p2_char = cfg.get("p2_char")
 
     data_dir = a.data_dir or DATA_DIR
     states = game_states.load_states(data_dir)
@@ -1313,9 +1327,10 @@ def main():
         def refresh_info():
             pid = tracker.rd.pid
             disc = getattr(tracker.rd, "game_id", None)
+            chars = " vs ".join(c for c in (a.p1_char, a.p2_char) if c) or "—"
             info.configure(
                 text=f"PPSSPP: {'sí' if pid else 'no'}   juego: {disc or '—'}"
-                     f"   datos: {'sí' if hybrid else 'no'}"
+                     f"   datos: {'sí' if hybrid else 'no'}   {chars}"
             )
             win.after(1000, refresh_info)
 

@@ -162,10 +162,15 @@ puede proyectar al instante, porque el id de movimiento es propio de cada uno.
 - Por defecto, si no hay tabla, el HUD muestra el id crudo (`#7`, `#21`, `#12`).
   Sirve igual para Bryan, Bruce, Kazuya o cualquier otro, y **nunca etiqueta mal**
   un golpe.
+- `--p1-char` / `--p2-char` son **opcionales** y se recuerdan en
+  `config/hud.json`: basta con indicarlos una vez (`--p1-char bryan`) y las
+  siguientes veces `python tools/hud.py` ya carga la tabla. `--p1-char none` lo
+  borra. Sin personaje se sigue midiendo igual, solo se pierde el nombre y la
+  proyección teórica.
 - Con tabla (`data/compiled/<personaje>.json`) el HUD enseña el nombre (`1`,
   `3+4`, `4,3`) y proyecta `i10~` / `+1~` en el frame 0; al conectar, la
   medición real sustituye al teórico.
-- `--p1-char bryan` ya viene incluido (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
+- La tabla de **Bryan** ya viene compilada (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
 - El `raw` de **38 de los 40** personajes ya está descargado en `data/raw/`
   (`python tools/scraper.py --roster`); `mokujin` y `panda` no tienen tabla
   propia en la fuente. Falta solo asociar los Move IDs de los que juegas.
