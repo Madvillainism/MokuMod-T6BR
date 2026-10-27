@@ -259,6 +259,29 @@ def test_same_id_pressed_again():
     print("ok  jab repetido sin cambiar de id: i10 y i10 (antes i10 e i43)")
 
 
+def test_string_startup_from_animation():
+    """Segundo golpe de un string: se mide desde el inicio del string.
+
+    En un string el contador de animación NO se reinicia y el Move ID del
+    siguiente golpe cambia antes del impacto.  Antes se publicaba el tiempo
+    desde el cambio de id (i4 en el drill del dummy); ahora es el frame real
+    dentro del string (i14), que es lo que compara la frame data.
+    """
+    sim = Sim()
+    for _ in range(5):
+        sim.frame()
+    # primer golpe: id 7, contador 1..10, impacto en el 10
+    for c in range(1, 11):
+        sim.frame(mid=7, s1=ATTACK, c1=c, hp2=172 if c == 10 else 180)
+    # segundo golpe del string: el id pasa a 8 y el contador sigue (11..14)
+    for c in range(11, 15):
+        sim.frame(mid=8, s1=ATTACK, c1=c, hp2=164 if c == 14 else 172)
+    hits = sim.all("P1", "impact")
+    assert [h["startup"] for h in hits] == [10, 14], [h["startup"] for h in hits]
+    assert hits[1]["label"] == "#8", hits[1]["label"]
+    print("ok  string: el 2.º golpe se mide desde el inicio del string (i14, antes i4)")
+
+
 def test_notation():
     assert load_notation(None) == {}
     b = load_notation("bryan")
@@ -414,6 +437,7 @@ if __name__ == "__main__":
     test_one_block_one_punish()
     test_startup_from_counter()
     test_same_id_pressed_again()
+    test_string_startup_from_animation()
     test_notation()
     test_hybrid_projection()
     test_mapper_compile()

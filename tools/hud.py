@@ -384,7 +384,12 @@ class Tracker:
                 # then its value is the move's frame number (1, 2, 3, ...).
                 # The counter is read on the sample the id *appeared*, not on
                 # the sample the debounce accepted it (already +1).
-                self.seg_c0 = self.mid_c1 if (self.mid_c1 or 99) <= 3 else None
+                if (self.mid_c1 or 99) <= 3:
+                    self.seg_c0 = self.mid_c1
+                # Si el contador no reinició con el id, la animación continúa
+                # (segundo golpe de un string): se conserva el origen del
+                # contador para medir desde el inicio del string y no desde el
+                # cambio de Move ID, que puede llegar antes que la animación.
                 if self.emit_start:
                     # Frame 0 del movimiento: el motor híbrido proyecta la
                     # tabla aquí, antes de que exista ningún impacto.
@@ -932,8 +937,13 @@ def load_recording(name, cache_dir=None):
     with open(base + ".bin", "rb") as fh:
         raw = fh.read()
     out = []
+    need = STRIDE + max(OFF_FREE, OFF_TAIL, OFF_MOVEID, OFF_STATE) + 2
     for i in range(len(raw) // span):
         d = raw[i * span:(i + 1) * span]
+        if len(d) < need:
+            # Grabaciones antiguas (span 2680) no guardaban el final del bloque
+            # de P2: se rellena con ceros para poder reproducirlas igualmente.
+            d = d + b"\x00" * (need - len(d))
         out.append((
             samples[i][0],
             {

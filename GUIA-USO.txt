@@ -140,9 +140,10 @@ Sale "#25" en vez del nombre del golpe:
     - Mapealo con --learn o edita data/mappings/<personaje>_map.json.
 
 El startup sale mas alto de lo normal:
-    - En strings (1,1,3...) el segundo golpe se mide desde el cambio de Move
-      ID, no desde el inicio del string, y puede ser una variante con datos
-      distintos. Para datos limpios, prueba el golpe suelto.
+    - En strings (1,1,3...) el segundo golpe se mide desde el inicio del
+      string, asi que es normal que salga mas alto que el primer golpe; ademas
+      puede ser una variante con datos distintos a la del movimiento suelto.
+      Para datos limpios, prueba el golpe suelto.
     - Si vienes de un derribo, espera a que el rival se levante del todo.
 
 La ventaja no aparece (muestra "-"):
