@@ -8,57 +8,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hud import (  # noqa: E402
-    OFF_COUNTER,
-    OFF_FREE,
-    OFF_HEALTH,
-    OFF_MOVEID,
-    OFF_STATE,
-    OFF_TAIL,
-    STRIDE,
-    Tracker,
-)
-
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".cache", "in")
-
-
-def load(name):
-    base = os.path.join(CACHE, name)
-    meta = json.load(open(base + ".json"))
-    span = meta["meta"]["span"]
-    raw = open(base + ".bin", "rb").read()
-    n = len(raw) // span
-    samples = meta["samples"]
-    out = []
-    for i in range(n):
-        d = raw[i * span : (i + 1) * span]
-        out.append(
-            (
-                samples[i][0],
-                {
-                    "c1": struct.unpack_from("<I", d, OFF_COUNTER)[0],
-                    "mid": struct.unpack_from("<I", d, OFF_MOVEID)[0],
-                    "free1": d[OFF_FREE],
-                    "tail1": d[OFF_TAIL],
-                    "s2": struct.unpack_from("<H", d, STRIDE + OFF_STATE)[0],
-                    "c2": struct.unpack_from("<I", d, STRIDE + OFF_COUNTER)[0],
-                    "hp2": struct.unpack_from("<H", d, STRIDE + OFF_HEALTH)[0],
-                    "free2": d[STRIDE + OFF_FREE],
-                    "tail2": d[STRIDE + OFF_TAIL],
-                },
-            )
-        )
-    return out
+from hud import Tracker, load_recording  # noqa: E402
 
 
 def replay(name, show_mids=False, verbose=False):
-    samples = load(name)
+    samples = load_recording(name)
     tr = Tracker()
     print(f"=== {name} ({len(samples)} samples) ===")
     prev_mid = None

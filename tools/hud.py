@@ -529,6 +529,7 @@ class TrackerThread(threading.Thread):
         self.learner = learner      # modo --learn (IDs y estados nuevos)
         self.display = {"P1": None, "P2": None}
         self.running = True
+        self.replay_done = False   # modo --replay: la demo terminó
         self.clock = 0
         self.clock_c = None
         self.last_block = None   # last BLOCK exchange, kept after its final
@@ -662,9 +663,16 @@ class TrackerThread(threading.Thread):
         side = ev["side"]
         adv = ev["adv"] if ev["phase"] == "final" else None
         kind = "PUNISH" if ev.get("punish") else ev["kind"]
-        ev["display"] = self.hybrid.confirm(
+        display = self.hybrid.confirm(
             self.display.get(side), ev["mid"], ev["startup"], adv, kind, side
         )
+        if display.hit_type not in ("HIT", "BLOCK", "PUNISH"):
+            # Golpe que derriba (KND): la tabla pone la etiqueta y el número
+            # medido (tiempo de levantarse) no se publica como ventaja.
+            ev["kind"] = display.hit_type
+            if ev["phase"] == "final":
+                ev["adv"] = None
+        ev["display"] = display
 
     def _learn_state(self, state):
         if self.learner is not None and state:
@@ -909,6 +917,58 @@ def notation_for(char, lookup):
     return table
 
 
+def load_recording(name, cache_dir=None):
+    """Carga una grabación de `.cache/in/<nombre>.bin` (+ `.json`) como muestras.
+
+    Formato: `inputrec.py --bin` escribe el bloque de memoria de cada muestra y
+    un JSON con los tiempos.  Lo usan `tools/replay.py` y `hud.py --replay`.
+    """
+    base_dir = cache_dir or os.path.join(ROOT, ".cache", "in")
+    base = os.path.join(base_dir, str(name).removesuffix(".bin"))
+    with open(base + ".json", encoding="utf-8") as fh:
+        meta = json.load(fh)
+    span = meta["meta"]["span"]
+    samples = meta["samples"]
+    with open(base + ".bin", "rb") as fh:
+        raw = fh.read()
+    out = []
+    for i in range(len(raw) // span):
+        d = raw[i * span:(i + 1) * span]
+        out.append((
+            samples[i][0],
+            {
+                "c1": struct.unpack_from("<I", d, OFF_COUNTER)[0],
+                "mid": struct.unpack_from("<I", d, OFF_MOVEID)[0],
+                "free1": d[OFF_FREE],
+                "tail1": d[OFF_TAIL],
+                "s1": struct.unpack_from("<H", d, OFF_STATE)[0],
+                "hp1": struct.unpack_from("<H", d, OFF_HEALTH)[0],
+                "mid2": struct.unpack_from("<I", d, STRIDE + OFF_MOVEID)[0],
+                "s2": struct.unpack_from("<H", d, STRIDE + OFF_STATE)[0],
+                "c2": struct.unpack_from("<I", d, STRIDE + OFF_COUNTER)[0],
+                "hp2": struct.unpack_from("<H", d, STRIDE + OFF_HEALTH)[0],
+                "free2": d[STRIDE + OFF_FREE],
+                "tail2": d[STRIDE + OFF_TAIL],
+            },
+        ))
+    return out
+
+
+def run_replay(tracker, name, speed=1.0):
+    """Alimenta el tracker con una grabación, a velocidad real, sin PPSSPP."""
+    boost_timer()
+    samples = load_recording(name)
+    t0 = time.time()
+    for t, sample in samples:
+        if speed > 0:
+            delay = t0 + (t / speed) - time.time()
+            if delay > 0:
+                time.sleep(delay)
+        tracker.feed(sample)
+    time.sleep(2.5)          # deja ver el último resultado
+    tracker.replay_done = True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--x", type=int, default=None)
@@ -929,6 +989,11 @@ def main():
                     help="aprender IDs y estados nuevos por consola")
     ap.add_argument("--settings", action="store_true",
                     help="abrir el panel de ajustes (también con F8)")
+    ap.add_argument("--replay", default=None,
+                    help="reproducir una grabación de .cache/in/ sobre el overlay "
+                         "(no necesita PPSSPP)")
+    ap.add_argument("--speed", type=float, default=1.0,
+                    help="velocidad del --replay (2 = doble, 0 = sin esperas)")
     a = ap.parse_args()
 
     enable_dpi_awareness()
@@ -985,7 +1050,14 @@ def main():
         data_dir=data_dir,
     )
     holder["tracker"] = tracker
-    tracker.start()
+    if a.replay:
+        # Modo demo: la grabación sustituye a la lectura de memoria.
+        tracker.replay_done = False
+        threading.Thread(
+            target=run_replay, args=(tracker, a.replay, a.speed), daemon=True
+        ).start()
+    else:
+        tracker.start()
 
     root = tk.Tk()
     root.title("T6 frames")
@@ -1035,6 +1107,8 @@ def main():
     def place():
         if cfg.get("x") is not None and cfg.get("y") is not None:
             return int(cfg["x"]), int(cfg["y"])
+        if a.replay:
+            return (root.winfo_screenwidth() - W) // 2, (root.winfo_screenheight() - H) // 2
         pid = tracker.rd.pid
         if pid:
             rect = find_game_window(pid)
@@ -1058,6 +1132,10 @@ def main():
         cell["until"] = 0.0
 
     def poll():
+        if tracker.replay_done:
+            # Demo terminada: cerrar el overlay (no hay PPSSPP que seguir).
+            root.destroy()
+            return
         if tracker.rd.dead:
             # The emulator closed: take the overlay with it.
             root.destroy()
@@ -1104,6 +1182,9 @@ def main():
                     else:
                         put(cell["kind"], res.get("kind", ""), C_DIM)
                 elif phase == "final":
+                    qualitative = (display is not None
+                                   and display.hit_type not in
+                                   ("HIT", "BLOCK", "PUNISH", "PREDICT", "WAIT"))
                     if adv is None and res.get("predict") is not None:
                         put(cell["value"], f"~{res['predict']:+d}", C_DIM)
                     else:
@@ -1111,6 +1192,8 @@ def main():
                             colour(adv, res.get("kind")))
                     if cell["punish"]:
                         put(cell["kind"], "PUNISH", C_BAD)
+                    elif qualitative:
+                        put(cell["kind"], display.hit_type, C_HIT)
                     else:
                         put(cell["kind"], res.get("kind", ""), "#B0BEC5")
                     # Both sides of the coin: the defender sees the opposite
@@ -1120,6 +1203,11 @@ def main():
                     if adv is not None and not oc["punish"]:
                         put(oc["value"], f"{-adv:+d}", colour(-adv, res.get("kind")))
                         put(oc["kind"], res.get("kind", ""), C_DIM)
+                        oc["until"] = now + 5.0
+                    elif qualitative and not oc["punish"]:
+                        # Derribo: el rival tampoco tiene una ventaja numérica.
+                        put(oc["value"], "—", C_DIM)
+                        put(oc["kind"], display.hit_type, C_DIM)
                         oc["until"] = now + 5.0
                 cell["until"] = now + 5.0
         except queue.Empty:

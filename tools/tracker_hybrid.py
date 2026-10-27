@@ -96,12 +96,38 @@ class HybridTracker:
             side=side,
         )
 
+    def qualitative_label(self, player_id: int, move_id: int,
+                          kind: str = "HIT") -> str | None:
+        """Etiqueta no numérica de la tabla (KND, CS, SLD...) o None.
+
+        Tras un derribo el desbloqueo del rival tarda ~60 frames: publicar
+        "+58" sería engañoso, así que se enseña la etiqueta de la tabla.
+        """
+        if kind != "HIT" or not self.enabled:
+            return None
+        char = self.character(player_id)
+        if not (char and move_id):
+            return None
+        info = self.lookup.get_move_info(char, move_id) or {}
+        on_hit = info.get("on_hit")
+        if isinstance(on_hit, str):
+            label = on_hit.strip().upper()
+            if label and label not in ("-", "—", "?"):
+                return label
+        return None
+
     def confirm(self, display: FrameDisplayData | None, move_id: int,
                 measured_startup: int | None, measured_adv: int | None,
                 hit_type: str, side: str = "P1") -> FrameDisplayData:
         """La memoria manda: sustituye lo proyectado por lo medido."""
         name = display.move_name if display else f"#{move_id}"
         startup = f"i{measured_startup}" if measured_startup is not None else "i--"
+        label = None
+        if hit_type == "HIT":
+            label = self.qualitative_label(1 if side == "P1" else 2, move_id)
+        if label:
+            hit_type = label
+            measured_adv = None
         adv = f"{measured_adv:+d}" if measured_adv is not None else "—"
         return FrameDisplayData(
             move_name=name,

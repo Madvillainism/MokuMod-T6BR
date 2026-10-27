@@ -103,7 +103,11 @@ python tools/hud.py --settings              # panel de ajustes (también con F8)
 python tools/hud.py --p1-char bryan --learn # aprender IDs nuevos por consola
 python tools/hud.py --no-table              # solo memoria (sin proyección teórica)
 
-# 2) tracker en consola (mismo motor, sin ventana)
+# 2) demo del overlay sin PPSSPP (reproduce una grabación de .cache/in/)
+python tools/hud.py --replay val_1_0        # velocidad real, se cierra solo
+python tools/hud.py --replay s43a --speed 2 # doble de velocidad
+
+# 3) tracker en consola (mismo motor, sin ventana)
 python tools/live.py
 ```
 
@@ -127,6 +131,12 @@ python tools/live.py
   (`i10~ +1~ TABLA`, en gris) y la medición lo sustituye al conectar. El panel
   de ajustes (**F8** o `--settings`) mueve el HUD, cambia opacidad y fuente, y
   guarda todo en `config/hud.json`.
+- Si el golpe **derriba** (`KND` en la tabla) no se publica un número: la fila
+  muestra `i18 — KND`. El `+58` que salía antes era el tiempo de levantarse, no
+  una ventaja real.
+- `--replay NOMBRE` reproduce una grabación de `.cache/in/` sobre el overlay
+  real (sin PPSSPP): sirve para comprobar la ventana, los colores y la
+  proyección de la tabla sin arrancar el emulador.
 
 📘 **Guía de pruebas paso a paso** (lanzar PPSSPP desde el escritorio y el HUD
 desde VS Code, con la batería de casos y qué significa cada mensaje de la
@@ -482,6 +492,26 @@ dummy), que es exactamente lo que no debe pasar.
 Cuando el castigo entra, la recuperación del dummy queda cortada, así que su
 propia ventaja ya no es el valor del bloqueo: esa fila muestra `—` en vez de un
 número contaminado.
+
+### 5.2 Validación en vivo (27/10/2026)
+
+PPSSPP 1.19.3 con el estado `ULES01376_1.00_0.ppst` (Práctica) y los golpes
+inyectados por el bus (`tools/pad.py`, el usuario no podía pulsar botones):
+
+| Movimiento | Teclas | Medido | Oficial |
+|---|---|---|---|
+| `1` | square | **i10 +8 HIT** | i10 / +8 |
+| `3` | cross | **i16 +7 HIT** | i16 / +7 |
+| `4` | circle | **i12 +6 HIT** | i12 / +6 |
+| `1+2` | square+triangle | **i14 +6 HIT** | i14 / +6 |
+| `3+4` | circle+cross | **i18 — KND** | i18 / KND |
+| id desconocido | — | **`#25 i15 +6`** (fallback) | — |
+| **PUNISH** | `1` tras bloqueo | **i10 HIT PUNISH** | ventana respetada |
+
+El HUD pintó en vivo la proyección (`1 i10~ +1~ TABLA`), la confirmación de
+memoria y la etiqueta roja `PUNISH` sobre el ender de `−11` del dummy. Las
+capturas están en `captures/ppsspp-20261027-*.png` y el registro completo de la
+sesión en [`tasks/06-sesion-live-2026-10-27.md`](tasks/06-sesion-live-2026-10-27.md).
 
 ---
 
