@@ -1,0 +1,1213 @@
+{
+  "character": "feng",
+  "source": "https://tekkendocs.com/t6/feng",
+  "scraped_at": "2026-10-27T17:15:19",
+  "moves": {
+    "1": {
+      "notation": "1",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 8
+    },
+    "1,1": {
+      "notation": "1,1",
+      "type": "h, m",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 2,
+      "on_ch": "KND",
+      "damage": "8, 25"
+    },
+    "1,2": {
+      "notation": "1,2",
+      "type": "h, h",
+      "startup": null,
+      "on_block": 0,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": "8, 9"
+    },
+    "1,2,2": {
+      "notation": "1,2,2",
+      "type": "h, h, h",
+      "startup": null,
+      "on_block": -14,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": "8, 9, 12"
+    },
+    "1,2,2,b": {
+      "notation": "1,2,2,b",
+      "type": "h, h, h",
+      "startup": null,
+      "on_block": -12,
+      "on_hit": 2,
+      "on_ch": null,
+      "damage": "8, 9, 12"
+    },
+    "1,3": {
+      "notation": "1,3",
+      "type": "h, h",
+      "startup": null,
+      "on_block": -6,
+      "on_hit": 5,
+      "on_ch": "KND",
+      "damage": "8, 18"
+    },
+    "2": {
+      "notation": "2",
+      "type": "h",
+      "startup": 10,
+      "on_block": -3,
+      "on_hit": 5,
+      "on_ch": null,
+      "damage": 9
+    },
+    "2,4": {
+      "notation": "2,4",
+      "type": "h, m",
+      "startup": null,
+      "on_block": -12,
+      "on_hit": -1,
+      "on_ch": null,
+      "damage": "9, 12"
+    },
+    "2,4,1": {
+      "notation": "2,4,1",
+      "type": "h, m, m",
+      "startup": null,
+      "on_block": -14,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "9, 12, 24"
+    },
+    "2~1": {
+      "notation": "2~1",
+      "type": "m",
+      "startup": 24,
+      "on_block": "-4~-2c",
+      "on_hit": "+7~+9c",
+      "on_ch": null,
+      "damage": 12
+    },
+    "2~1,1": {
+      "notation": "2~1,1",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "12, 24"
+    },
+    "3~4": {
+      "notation": "3~4",
+      "type": "m",
+      "startup": 35,
+      "on_block": "-12~-10c",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 38
+    },
+    "3~4,3": {
+      "notation": "3~4,3",
+      "type": "m, l",
+      "startup": null,
+      "on_block": -15,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "38, 25"
+    },
+    "3": {
+      "notation": "3",
+      "type": "h",
+      "startup": 14,
+      "on_block": -7,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "4~3": {
+      "notation": "4~3",
+      "type": "m",
+      "startup": "i27~33",
+      "on_block": "-4~+2",
+      "on_hit": "+4~+9c",
+      "on_ch": "KND",
+      "damage": 30
+    },
+    "4": {
+      "notation": "4",
+      "type": "h",
+      "startup": 11,
+      "on_block": -10,
+      "on_hit": 1,
+      "on_ch": "KND",
+      "damage": 15
+    },
+    "1+2": {
+      "notation": "1+2",
+      "type": "m",
+      "startup": 21,
+      "on_block": -13,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 33
+    },
+    "f+1": {
+      "notation": "f+1",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 8
+    },
+    "f+2": {
+      "notation": "f+2",
+      "type": "m",
+      "startup": "i16~17",
+      "on_block": "-6~-5",
+      "on_hit": "+5~+6",
+      "on_ch": "KND (+7)",
+      "damage": 14
+    },
+    "f+2,1": {
+      "notation": "f+2,1",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -7,
+      "on_hit": 4,
+      "on_ch": 11,
+      "damage": "14, 15"
+    },
+    "f+2,1,2": {
+      "notation": "f+2,1,2",
+      "type": "m, m, m",
+      "startup": null,
+      "on_block": -25,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "14, 15, 24"
+    },
+    "f+3": {
+      "notation": "f+3",
+      "type": "m",
+      "startup": 21,
+      "on_block": -6,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": 12
+    },
+    "f+3,4": {
+      "notation": "f+3,4",
+      "type": "m, m",
+      "startup": null,
+      "on_block": "-16~-15",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "12, 24"
+    },
+    "f+4": {
+      "notation": "f+4",
+      "type": "h",
+      "startup": 18,
+      "on_block": -9,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "f+4,3": {
+      "notation": "f+4,3",
+      "type": "h, m",
+      "startup": null,
+      "on_block": -10,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "18, 25"
+    },
+    "f+4,b": {
+      "notation": "f+4,b",
+      "type": "h",
+      "startup": 18,
+      "on_block": -5,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "f+4,4": {
+      "notation": "f+4,4",
+      "type": "h, l",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": "KND",
+      "damage": "18, 18"
+    },
+    "f+1+2": {
+      "notation": "f+1+2",
+      "type": "h",
+      "startup": 19,
+      "on_block": 0,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 42
+    },
+    "df+1": {
+      "notation": "df+1",
+      "type": "m",
+      "startup": 14,
+      "on_block": 0,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": 14
+    },
+    "df+2": {
+      "notation": "df+2",
+      "type": "m",
+      "startup": 20,
+      "on_block": -9,
+      "on_hit": 4,
+      "on_ch": null,
+      "damage": 18
+    },
+    "df+2,2": {
+      "notation": "df+2,2",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -6,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "18, 25"
+    },
+    "df+3": {
+      "notation": "df+3",
+      "type": "m",
+      "startup": 18,
+      "on_block": -7,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 25
+    },
+    "df+4": {
+      "notation": "df+4",
+      "type": "m",
+      "startup": 15,
+      "on_block": -6,
+      "on_hit": 5,
+      "on_ch": null,
+      "damage": 18
+    },
+    "df+3+4": {
+      "notation": "df+3+4",
+      "type": "m",
+      "startup": 24,
+      "on_block": -7,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 27
+    },
+    "d+1": {
+      "notation": "d+1",
+      "type": "sm",
+      "startup": 10,
+      "on_block": -5,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": 6
+    },
+    "d+2": {
+      "notation": "d+2",
+      "type": "l",
+      "startup": 20,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": "KND",
+      "damage": 18
+    },
+    "d+3": {
+      "notation": "d+3",
+      "type": "l",
+      "startup": 16,
+      "on_block": -17,
+      "on_hit": -3,
+      "on_ch": null,
+      "damage": 14
+    },
+    "d+4": {
+      "notation": "d+4",
+      "type": "l",
+      "startup": 14,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": 8
+    },
+    "d+4,1+2": {
+      "notation": "d+4,1+2",
+      "type": "l, m",
+      "startup": null,
+      "on_block": -10,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "8, 26"
+    },
+    "d+1+2": {
+      "notation": "d+1+2",
+      "type": "m, h",
+      "startup": 20,
+      "on_block": -5,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": "6, 7"
+    },
+    "d+1+2,1": {
+      "notation": "d+1+2,1",
+      "type": "m, h, h",
+      "startup": null,
+      "on_block": -5,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": "6, 7, 8"
+    },
+    "d+1+2,1,2": {
+      "notation": "d+1+2,1,2",
+      "type": "m, h, h, m",
+      "startup": null,
+      "on_block": -16,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "6, 7, 8, 14"
+    },
+    "db+1": {
+      "notation": "db+1",
+      "type": "m",
+      "startup": 16,
+      "on_block": -10,
+      "on_hit": 1,
+      "on_ch": null,
+      "damage": 14
+    },
+    "db+1,2": {
+      "notation": "db+1,2",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 7,
+      "on_ch": "KND",
+      "damage": "14, 21"
+    },
+    "db+1,f": {
+      "notation": "db+1,f",
+      "type": "m",
+      "startup": 26,
+      "on_block": -9,
+      "on_hit": -5,
+      "on_ch": null,
+      "damage": 14
+    },
+    "db+1,b": {
+      "notation": "db+1,b",
+      "type": "m",
+      "startup": 26,
+      "on_block": -10,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": 14
+    },
+    "db+2": {
+      "notation": "db+2",
+      "type": "l",
+      "startup": "i20~21",
+      "on_block": "-11~-10",
+      "on_hit": "+0~+1",
+      "on_ch": null,
+      "damage": 6
+    },
+    "db+2,2": {
+      "notation": "db+2,2",
+      "type": "l, l",
+      "startup": null,
+      "on_block": -16,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "6, 13"
+    },
+    "db+2,2,2": {
+      "notation": "db+2,2,2",
+      "type": "l, l, m",
+      "startup": null,
+      "on_block": -8,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "6, 12, 24"
+    },
+    "db+2,2,b": {
+      "notation": "db+2,2,b",
+      "type": "l",
+      "startup": null,
+      "on_block": "-17~-16",
+      "on_hit": -6,
+      "on_ch": null,
+      "damage": 6
+    },
+    "db+3": {
+      "notation": "db+3",
+      "type": "l",
+      "startup": "i16~17",
+      "on_block": "-15~-14",
+      "on_hit": "+4~+5",
+      "on_ch": null,
+      "damage": 14
+    },
+    "db+4": {
+      "notation": "db+4",
+      "type": "l",
+      "startup": 28,
+      "on_block": "-25c",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 30
+    },
+    "db+1+2": {
+      "notation": "db+1+2",
+      "type": "m",
+      "startup": 21,
+      "on_block": 0,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 18
+    },
+    "db+1+2,2": {
+      "notation": "db+1+2,2",
+      "type": "m, l",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 5,
+      "on_ch": null,
+      "damage": "18, 18"
+    },
+    "b+1": {
+      "notation": "b+1",
+      "type": "h",
+      "startup": 10,
+      "on_block": -10,
+      "on_hit": -4,
+      "on_ch": "KND",
+      "damage": 14
+    },
+    "b+2": {
+      "notation": "b+2",
+      "type": "m",
+      "startup": 17,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": 18
+    },
+    "b+2,3": {
+      "notation": "b+2,3",
+      "type": "m, l",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": 8,
+      "damage": "18, 9"
+    },
+    "b+2,3,4": {
+      "notation": "b+2,3,4",
+      "type": "m, l, m",
+      "startup": null,
+      "on_block": -13,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "18, 9, 14"
+    },
+    "b+2,3,4,2": {
+      "notation": "b+2,3,4,2",
+      "type": "m, l, m, m",
+      "startup": null,
+      "on_block": "-3c",
+      "on_hit": "+4c",
+      "on_ch": null,
+      "damage": "18, 9, 14, 25"
+    },
+    "b+3": {
+      "notation": "b+3",
+      "type": "m",
+      "startup": 23,
+      "on_block": -8,
+      "on_hit": 3,
+      "on_ch": null,
+      "damage": 14
+    },
+    "b+3,3": {
+      "notation": "b+3,3",
+      "type": "m, h",
+      "startup": null,
+      "on_block": -6,
+      "on_hit": 5,
+      "on_ch": "KND",
+      "damage": "14, 18"
+    },
+    "b+4": {
+      "notation": "b+4",
+      "type": "m",
+      "startup": 12,
+      "on_block": -9,
+      "on_hit": 2,
+      "on_ch": null,
+      "damage": 18
+    },
+    "b+1+2": {
+      "notation": "b+1+2",
+      "type": "m",
+      "startup": 13,
+      "on_block": -25,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 28
+    },
+    "ub+2": {
+      "notation": "ub+2",
+      "type": "m, h",
+      "startup": 16,
+      "on_block": -16,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": "15, 25"
+    },
+    "ub+1+2": {
+      "notation": "ub+1+2",
+      "type": "!",
+      "startup": 79,
+      "on_block": "KND",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 72
+    },
+    "u+2": {
+      "notation": "u+2",
+      "type": "m",
+      "startup": 38,
+      "on_block": 1,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 26
+    },
+    "ub": {
+      "notation": "ub",
+      "type": "m",
+      "startup": 21,
+      "on_block": -2,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 26
+    },
+    "uf+2": {
+      "notation": "uf+2",
+      "type": "m",
+      "startup": 17,
+      "on_block": -10,
+      "on_hit": 3,
+      "on_ch": "KND",
+      "damage": 21
+    },
+    "ub+4": {
+      "notation": "ub+4",
+      "type": "m",
+      "startup": 15,
+      "on_block": -19,
+      "on_hit": -8,
+      "on_ch": "KND",
+      "damage": 13
+    },
+    "u+4": {
+      "notation": "u+4",
+      "type": "m",
+      "startup": 15,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "uf+4": {
+      "notation": "uf+4",
+      "type": "m",
+      "startup": 15,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 15
+    },
+    "uf+3+4": {
+      "notation": "uf+3+4",
+      "type": "m, h, h",
+      "startup": 24,
+      "on_block": -16,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "12, 12, 12"
+    },
+    "uf+3+4,3": {
+      "notation": "uf+3+4,3",
+      "type": "m, h, h, h",
+      "startup": null,
+      "on_block": -7,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "12, 12, 12, 25"
+    },
+    "f,F+1": {
+      "notation": "f,F+1",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 8
+    },
+    "f,F+2": {
+      "notation": "f,F+2",
+      "type": "m",
+      "startup": 19,
+      "on_block": -10,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 27
+    },
+    "f,F+3": {
+      "notation": "f,F+3",
+      "type": "m",
+      "startup": 33,
+      "on_block": "+1~+3c",
+      "on_hit": "+12c",
+      "on_ch": "KND",
+      "damage": 30
+    },
+    "f,F+4": {
+      "notation": "f,F+4",
+      "type": "m",
+      "startup": 20,
+      "on_block": -15,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 15
+    },
+    "f,F+4,3": {
+      "notation": "f,F+4,3",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "15, 25"
+    },
+    "f,F+1+2": {
+      "notation": "f,F+1+2",
+      "type": "m",
+      "startup": 23,
+      "on_block": -10,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 42
+    },
+    "b,f+1": {
+      "notation": "b,f+1",
+      "type": "m",
+      "startup": 25,
+      "on_block": -16,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 30
+    },
+    "f,f,F+3": {
+      "notation": "f,f,F+3",
+      "type": "m",
+      "startup": 23,
+      "on_block": 6,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 36
+    },
+    "ws1": {
+      "notation": "ws1",
+      "type": "m",
+      "startup": 15,
+      "on_block": -1,
+      "on_hit": 5,
+      "on_ch": null,
+      "damage": 15
+    },
+    "ws1,2": {
+      "notation": "ws1,2",
+      "type": "m, m",
+      "startup": null,
+      "on_block": -10,
+      "on_hit": 1,
+      "on_ch": null,
+      "damage": "15, 16"
+    },
+    "ws1,2,1": {
+      "notation": "ws1,2,1",
+      "type": "m, m, m",
+      "startup": null,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "15, 16, 24"
+    },
+    "ws2": {
+      "notation": "ws2",
+      "type": "m",
+      "startup": 15,
+      "on_block": -9,
+      "on_hit": "KND",
+      "on_ch": "JG",
+      "damage": 20
+    },
+    "ws3": {
+      "notation": "ws3",
+      "type": "m",
+      "startup": 15,
+      "on_block": -12,
+      "on_hit": "JG",
+      "on_ch": null,
+      "damage": 19
+    },
+    "ws4": {
+      "notation": "ws4",
+      "type": "m",
+      "startup": 11,
+      "on_block": -7,
+      "on_hit": 4,
+      "on_ch": null,
+      "damage": 21
+    },
+    "ws1+2": {
+      "notation": "ws1+2",
+      "type": "m",
+      "startup": 23,
+      "on_block": -10,
+      "on_hit": "KND (+47)",
+      "on_ch": null,
+      "damage": 30
+    },
+    "FC.df+1": {
+      "notation": "FC.df+1",
+      "type": "l",
+      "startup": 21,
+      "on_block": -13,
+      "on_hit": -1,
+      "on_ch": "KND",
+      "damage": 21
+    },
+    "SS.1": {
+      "notation": "SS.1",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 8
+    },
+    "SS.2": {
+      "notation": "SS.2",
+      "type": "h",
+      "startup": 24,
+      "on_block": -1,
+      "on_hit": 9,
+      "on_ch": null,
+      "damage": 21
+    },
+    "SS.3": {
+      "notation": "SS.3",
+      "type": "h",
+      "startup": 27,
+      "on_block": -13,
+      "on_hit": -2,
+      "on_ch": null,
+      "damage": 14
+    },
+    "SS.3,2": {
+      "notation": "SS.3,2",
+      "type": "h, m",
+      "startup": null,
+      "on_block": -5,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "14, 24"
+    },
+    "SS.4": {
+      "notation": "SS.4",
+      "type": "l",
+      "startup": 21,
+      "on_block": -31,
+      "on_hit": -2,
+      "on_ch": "KND",
+      "damage": 18
+    },
+    "SS.1+2": {
+      "notation": "SS.1+2",
+      "type": "m",
+      "startup": 31,
+      "on_block": -2,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 28
+    },
+    "FUFA.3+4": {
+      "notation": "FUFA.3+4",
+      "type": "m",
+      "startup": "i30~31",
+      "on_block": "-4~-3",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 24
+    },
+    "OTG.d+3+4": {
+      "notation": "OTG.d+3+4",
+      "type": "L",
+      "startup": 24,
+      "on_block": -13,
+      "on_hit": 5,
+      "on_ch": null,
+      "damage": 22
+    },
+    "f+3+4": {
+      "notation": "f+3+4",
+      "type": "m",
+      "startup": null,
+      "on_block": -17,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 25
+    },
+    "f+3+4,1": {
+      "notation": "f+3+4,1",
+      "type": "m",
+      "startup": 20,
+      "on_block": -14,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 24
+    },
+    "f+3+4,2": {
+      "notation": "f+3+4,2",
+      "type": "m",
+      "startup": 15,
+      "on_block": -13,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "f+3+4,3": {
+      "notation": "f+3+4,3",
+      "type": "h",
+      "startup": 51,
+      "on_block": "+2c",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 36
+    },
+    "f+3+4,4": {
+      "notation": "f+3+4,4",
+      "type": "l",
+      "startup": 21,
+      "on_block": -8,
+      "on_hit": 3,
+      "on_ch": "KND",
+      "damage": 25
+    },
+    "f+3+4,1+2": {
+      "notation": "f+3+4,1+2",
+      "type": "m",
+      "startup": "i15~16",
+      "on_block": -8,
+      "on_hit": "+2~+3",
+      "on_ch": null,
+      "damage": 8
+    },
+    "f+3+4,1+2,1": {
+      "notation": "f+3+4,1+2,1",
+      "type": "m, h",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": "8, 9"
+    },
+    "f+3+4,1+2,1,2": {
+      "notation": "f+3+4,1+2,1,2",
+      "type": "m, h, h",
+      "startup": null,
+      "on_block": -11,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "8, 9, 21"
+    },
+    "b+3+4,1": {
+      "notation": "b+3+4,1",
+      "type": "l",
+      "startup": 20,
+      "on_block": -13,
+      "on_hit": "+8c",
+      "on_ch": null,
+      "damage": 26
+    },
+    "b+3+4,2": {
+      "notation": "b+3+4,2",
+      "type": "h",
+      "startup": 29,
+      "on_block": -9,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 21
+    },
+    "b+3+4,3": {
+      "notation": "b+3+4,3",
+      "type": "m",
+      "startup": 22,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 18
+    },
+    "b+3+4,4": {
+      "notation": "b+3+4,4",
+      "type": "m",
+      "startup": "i31~34",
+      "on_block": -7,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 32
+    },
+    "b+3+4,4,3+4": {
+      "notation": "b+3+4,4,3+4",
+      "type": "m, m",
+      "startup": null,
+      "on_block": "-7~-4",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "32, 24"
+    },
+    "FC.2": {
+      "notation": "FC.2",
+      "type": "sm",
+      "startup": 11,
+      "on_block": -4,
+      "on_hit": 7,
+      "on_ch": null,
+      "damage": 9
+    },
+    "FC.3": {
+      "notation": "FC.3",
+      "type": "l",
+      "startup": 16,
+      "on_block": -17,
+      "on_hit": -3,
+      "on_ch": null,
+      "damage": 14
+    },
+    "FC.4": {
+      "notation": "FC.4",
+      "type": "l",
+      "startup": 12,
+      "on_block": -15,
+      "on_hit": -4,
+      "on_ch": null,
+      "damage": 12
+    },
+    "BT.b+1+2": {
+      "notation": "BT.b+1+2",
+      "type": "h",
+      "startup": 8,
+      "on_block": -8,
+      "on_hit": 3,
+      "on_ch": null,
+      "damage": 18
+    },
+    "FC.db": {
+      "notation": "FC.db",
+      "type": "sm",
+      "startup": 10,
+      "on_block": -5,
+      "on_hit": 6,
+      "on_ch": null,
+      "damage": 6
+    },
+    "qcf+1": {
+      "notation": "qcf+1",
+      "type": "l",
+      "startup": 24,
+      "on_block": -13,
+      "on_hit": 3,
+      "on_ch": "JG",
+      "damage": 25
+    },
+    "qcf+2": {
+      "notation": "qcf+2",
+      "type": "m",
+      "startup": 18,
+      "on_block": -13,
+      "on_hit": "+10g",
+      "on_ch": "KND",
+      "damage": 36
+    },
+    "qcf+3": {
+      "notation": "qcf+3",
+      "type": "m",
+      "startup": 17,
+      "on_block": -12,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 19
+    },
+    "qcf+4": {
+      "notation": "qcf+4",
+      "type": "m",
+      "startup": 13,
+      "on_block": -7,
+      "on_hit": 4,
+      "on_ch": null,
+      "damage": 21
+    },
+    "qcf+1+2": {
+      "notation": "qcf+1+2",
+      "type": "m",
+      "startup": 18,
+      "on_block": "+4c",
+      "on_hit": 9,
+      "on_ch": "KND",
+      "damage": 27
+    },
+    "BT.1": {
+      "notation": "BT.1",
+      "type": "h",
+      "startup": 12,
+      "on_block": -1,
+      "on_hit": 5,
+      "on_ch": 14,
+      "damage": 14
+    },
+    "BT.2": {
+      "notation": "BT.2",
+      "type": "m",
+      "startup": 16,
+      "on_block": -6,
+      "on_hit": 4,
+      "on_ch": 5,
+      "damage": 14
+    },
+    "BT.2,2": {
+      "notation": "BT.2,2",
+      "type": "m, m",
+      "startup": null,
+      "on_block": "-13c",
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": "14, 18"
+    },
+    "BT.3": {
+      "notation": "BT.3",
+      "type": "m",
+      "startup": "i32~34",
+      "on_block": "+1~+3c",
+      "on_hit": "+12c",
+      "on_ch": "KND",
+      "damage": 30
+    },
+    "BT.4": {
+      "notation": "BT.4",
+      "type": "h",
+      "startup": 10,
+      "on_block": -8,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 30
+    },
+    "BT.1+2": {
+      "notation": "BT.1+2",
+      "type": "m",
+      "startup": 16,
+      "on_block": -5,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 26
+    },
+    "BT.d+3": {
+      "notation": "BT.d+3",
+      "type": "l",
+      "startup": 19,
+      "on_block": -14,
+      "on_hit": -3,
+      "on_ch": "KND",
+      "damage": 18
+    },
+    "1+3": {
+      "notation": "1+3",
+      "type": "t",
+      "startup": null,
+      "on_block": -6,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": 35
+    },
+    "2+4": {
+      "notation": "2+4",
+      "type": "t",
+      "startup": null,
+      "on_block": -2,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": 35
+    },
+    "Left throw": {
+      "notation": "Left throw",
+      "type": "t",
+      "startup": null,
+      "on_block": -4,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": "40 (10, 30)"
+    },
+    "Right throw": {
+      "notation": "Right throw",
+      "type": "t",
+      "startup": null,
+      "on_block": -4,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": "40 (20, 20)"
+    },
+    "df+1+2": {
+      "notation": "df+1+2",
+      "type": "t",
+      "startup": null,
+      "on_block": -6,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": "40 (7, 7, 7, 7, 12)"
+    },
+    "BT.1+4": {
+      "notation": "BT.1+4",
+      "type": "t",
+      "startup": null,
+      "on_block": 0,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": 50
+    },
+    "b+1+3": {
+      "notation": "b+1+3",
+      "type": "",
+      "startup": null,
+      "on_block": -1,
+      "on_hit": null,
+      "on_ch": null,
+      "damage": "25+"
+    }
+  }
+}

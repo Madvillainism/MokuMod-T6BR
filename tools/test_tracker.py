@@ -45,14 +45,22 @@ class Sim:
     def frame(self, **kw):
         """Un frame de juego (3 muestras, como el lector real a ~1 kHz)."""
         self.n += 1
+        s = self._sample(**kw)
+        for _ in range(3):
+            self.tt.feed(s)
+        return s
+
+    def _sample(self, **kw):
         s = {
             "c1": self.n, "mid": 0, "free1": 1, "tail1": 0, "s1": IDLE2, "hp1": 180,
             "mid2": 0, "s2": IDLE, "c2": self.n, "hp2": 180, "free2": 1, "tail2": 0,
         }
         s.update(kw)
-        for _ in range(3):
-            self.tt.feed(s)
         return s
+
+    def sample(self, **kw):
+        """Muestra extra dentro del frame actual (el lector ve ~16 por frame)."""
+        self.tt.feed(self._sample(**kw))
 
     def find(self, side, phase, label=None):
         for ev in self.events:
@@ -203,6 +211,54 @@ def test_one_block_one_punish():
     print("ok  un bloqueo = un castigo (el 2.º golpe del combo no se marca)")
 
 
+def test_startup_from_counter():
+    """El arranque sale del contador de animación, no de contar muestras.
+
+    Dos fallos reales que este test fija:
+      * el lector pierde frames (contador 1,2,4,5,7,8,9,10) -> el jab salía i8;
+      * el id aparece una muestra antes del reset del contador -> salía i11.
+    """
+    # (a) frames perdidos por el lector
+    sim = Sim()
+    for _ in range(5):
+        sim.frame()
+    for c in (1, 2, 4, 5, 7, 8, 9, 10):
+        kw = {"mid": 7, "s1": ATTACK, "c1": c}
+        if c == 10:
+            kw["hp2"] = 172
+        sim.frame(**kw)
+    ev = sim.find("P1", "impact", "#7")
+    assert ev is not None and ev["startup"] == 10, f"i{ev and ev['startup']} (frames perdidos)"
+
+    # (b) el id 7 se escribe con el contador viejo; el reset llega después
+    sim = Sim()
+    for _ in range(5):
+        sim.frame()
+    sim.sample(mid=7, s1=ATTACK, c1=5)      # id nuevo, contador aún viejo
+    sim.frame(mid=7, s1=ATTACK, c1=1)       # primer frame real del jab
+    for k in range(2, 10):
+        sim.frame(mid=7, s1=ATTACK, c1=k)
+    sim.frame(mid=7, s1=ATTACK, c1=10, s2=BLOCK, c2=1)
+    ev = sim.find("P1", "impact", "#7")
+    assert ev is not None and ev["startup"] == 10, f"i{ev and ev['startup']} (id antes del reset)"
+    print("ok  arranque i10 aunque se pierdan frames o el id llegue antes del reset")
+
+
+def test_same_id_pressed_again():
+    """Dos jabs seguidos: el id no vuelve a 0, solo reinicia el contador."""
+    sim = Sim()
+    for _ in range(5):
+        sim.frame()
+    for c in range(1, 38):
+        sim.frame(mid=7, s1=ATTACK, c1=c, hp2=172 if c == 10 else 180)
+    for c in range(1, 11):
+        sim.frame(mid=7, s1=ATTACK, c1=c, hp2=164 if c == 10 else 180)
+    hits = sim.all("P1", "impact")
+    assert len(hits) == 2, f"{len(hits)} impactos"
+    assert [h["startup"] for h in hits] == [10, 10], [h["startup"] for h in hits]
+    print("ok  jab repetido sin cambiar de id: i10 y i10 (antes i10 e i43)")
+
+
 def test_notation():
     assert load_notation(None) == {}
     b = load_notation("bryan")
@@ -214,11 +270,154 @@ def test_notation():
     print("ok  sin tabla -> id crudo (#7); con --p1-char bryan -> 1")
 
 
+def test_hybrid_projection():
+    """Proyección de tabla al instante + confirmación por memoria."""
+    from lookup_engine import FrameTableLookup
+    from tracker_hybrid import HybridTracker
+
+    root = os.path.dirname(HERE)
+    lookup = FrameTableLookup(os.path.join(root, "data"))
+    assert lookup.load_character("bryan"), "falta data/compiled/bryan.json"
+
+    hybrid = HybridTracker(lookup, "bryan", None)
+    d = hybrid.project(1, 7)
+    assert d.hit_type == "PREDICT" and not d.is_confirmed, d
+    assert d.move_name == "1" and d.startup_str == "i10~", (d.move_name, d.startup_str)
+    assert d.advantage_str == "+1~", d.advantage_str
+    assert d.color_code == "gray"
+
+    d = hybrid.confirm(d, 7, 10, 8, "HIT")
+    assert d.is_confirmed and d.startup_str == "i10" and d.advantage_str == "+8", d
+    assert d.color_code == "green", d.color_code
+
+    # id sin mapear / personaje sin tabla: nunca inventa
+    d = hybrid.project(1, 999)
+    assert d.hit_type == "WAIT" and d.move_name == "#999", d
+    d = HybridTracker(lookup, "nadie", None).project(1, 7)
+    assert d.hit_type == "WAIT" and d.advantage_str == "—", d
+
+    # `raw/` va por notación, no por Move ID: usarlo como ID daría una
+    # predicción falsa (ID 1 -> jab).  Debe ignorarse para IDs.
+    import json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "raw"))
+        with open(os.path.join(tmp, "raw", "pj_raw.json"), "w", encoding="utf-8") as fh:
+            json.dump({"moves": {"1": {"startup": 10, "on_block": 1}}}, fh)
+        raw_lookup = FrameTableLookup(tmp)
+        assert raw_lookup.load_character("pj")
+        assert not raw_lookup.is_id_indexed("pj")
+        assert raw_lookup.get_move_info("pj", 1) is None
+        d = HybridTracker(raw_lookup, "pj", None).project(1, 1)
+        assert d.hit_type == "WAIT" and d.move_name == "#1", d
+    print("ok  híbrido: tabla al instante (i10~ +1~) y memoria manda (i10 +8)")
+
+
+def test_mapper_compile():
+    """raw + mappings -> compiled (y --learn recompila en caliente)."""
+    import json
+    import tempfile
+
+    import mapper
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "raw"))
+        os.makedirs(os.path.join(tmp, "mappings"))
+        with open(os.path.join(tmp, "raw", "test_raw.json"), "w", encoding="utf-8") as fh:
+            json.dump({"moves": {"f+2": {"startup": 14, "on_block": -3}}}, fh)
+        mapper.add_mapping("test", 42, "f+2", tmp)
+        assert mapper.compile_character_db("test", tmp, quiet=True)
+        with open(os.path.join(tmp, "compiled", "test.json"), encoding="utf-8") as fh:
+            compiled = json.load(fh)
+        assert compiled["moves"]["42"]["notation"] == "f+2"
+        assert compiled["moves"]["42"]["startup"] == 14
+
+        # un id mapeado a una notación que el raw no tiene no se inventa
+        mapper.add_mapping("test", 43, "no-existe", tmp)
+        mapper.compile_character_db("test", tmp, quiet=True)
+        with open(os.path.join(tmp, "compiled", "test.json"), encoding="utf-8") as fh:
+            compiled = json.load(fh)
+        assert "43" not in compiled["moves"]
+    print("ok  mapper: Move ID -> notación -> frame data, sin inventar datos")
+
+
+def test_states_config():
+    """data/states.json: guardia agachada aprendida sin tocar código."""
+    import tempfile
+
+    import game_states
+
+    with tempfile.TemporaryDirectory() as tmp:
+        states = game_states.load_states(tmp)
+        assert 4178 in states["block_states"] and 2114 in states["attack_states"]
+        assert game_states.add_block_state(4182, tmp)
+        assert not game_states.add_block_state(4182, tmp)
+        assert 4182 in game_states.load_states(tmp)["block_states"]
+    print("ok  estados de guardia configurables (4178 + 4182 aprendido)")
+
+
+def test_learner_asks_and_saves():
+    """--learn: un id desconocido se pregunta y se guarda en el mapa."""
+    import json
+    import tempfile
+
+    import learn
+    import mapper
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "raw"))
+        os.makedirs(os.path.join(tmp, "mappings"))
+        with open(os.path.join(tmp, "raw", "pj_raw.json"), "w", encoding="utf-8") as fh:
+            json.dump({"moves": {"f+2": {"startup": 14, "on_block": -3}}}, fh)
+
+        learner = learn.Learner({"P1": "pj"}, data_dir=tmp, ask=lambda _p="": "f+2")
+        learner._ask_move("pj", 99)
+        learner.muted = True
+
+        with open(os.path.join(tmp, "mappings", "pj_map.json"), encoding="utf-8") as fh:
+            assert json.load(fh)["99"] == "f+2"
+        assert mapper.compile_character_db("pj", tmp, quiet=True)
+        with open(os.path.join(tmp, "compiled", "pj.json"), encoding="utf-8") as fh:
+            assert json.load(fh)["moves"]["99"]["startup"] == 14
+    print("ok  --learn guarda el ID, recompila y el HUD lo puede recargar")
+
+
+def test_scraper_parse():
+    """El scraper lee por cabeceras y cae al formato posicional si no hay."""
+    import scraper
+
+    html = """
+    <table>
+      <tr><th>Command</th><th>Hit level</th><th>Startup</th><th>Block</th><th>Hit</th></tr>
+      <tr><td>1</td><td>h</td><td>i10</td><td>+1</td><td>+8</td></tr>
+      <tr><td>3+4</td><td>h</td><td>i18</td><td>-8</td><td>KND</td></tr>
+    </table>
+    """
+    moves = scraper.parse_html(html)
+    assert moves["1"]["startup"] == 10 and moves["1"]["on_block"] == 1
+    assert moves["1"]["on_hit"] == 8
+    assert moves["3+4"]["startup"] == 18 and moves["3+4"]["on_hit"] == "KND"
+
+    # sin cabecera reconocible: columnas del roadmap (notación, tipo, i, b, h)
+    html = "<table><tr><td>f+2</td><td>m</td><td>i14</td><td>-3</td><td>+5</td></tr></table>"
+    moves = scraper.parse_html(html)
+    assert moves["f+2"]["startup"] == 14 and moves["f+2"]["on_block"] == -3
+    print("ok  scraper: cabeceras (Command/Startup/Block/Hit) y fallback posicional")
+
+
 if __name__ == "__main__":
     test_punish()
     test_clock_drift()
     test_late_hit_is_not_punish()
     test_prediction()
     test_one_block_one_punish()
+    test_startup_from_counter()
+    test_same_id_pressed_again()
     test_notation()
+    test_hybrid_projection()
+    test_mapper_compile()
+    test_states_config()
+    test_learner_asks_and_saves()
+    test_scraper_parse()
     print("TODO OK")

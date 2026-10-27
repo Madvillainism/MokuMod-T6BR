@@ -1,4 +1,8 @@
-// t6padd.mjs — persistent PPSSPP telemetry daemon.
+// t6padd.mjs — DEPRECADO.  Ya no lo usa nada: el bus persistente está
+// reescrito en Python nativo en tools/ppsspp_ws.py (`python tools/ppsspp_ws.py
+// --serve`), sin Node.js.  Se conserva solo como referencia histórica.
+//
+// persistent PPSSPP telemetry daemon.
 //
 // PPSSPP 1.19.3's debugger crashes (0xc0000005) when clients connect and
 // disconnect around game-state transitions, so this daemon owns exactly one

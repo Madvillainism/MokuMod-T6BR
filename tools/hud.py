@@ -4,10 +4,21 @@
 Reads both player structs straight out of PPSSPP's memory at ~1 kHz and paints
 the result on a transparent, click-through window over the emulator.
 
-Measurement model (no move table):
+Measurement model (hybrid: local table + live telemetry):
 
-  * startup   = contact frame - frame the game switched to the move
+  * startup   = the game's own animation counter on the contact frame
   * advantage = P2 unlock frame - P1 unlock frame
+
+The local database (`data/compiled/<char>.json`) is only a **prediction**: at
+the frame the move id changes it paints the theoretical value (`i10~ +1~`,
+grey, "TABLA").  Memory always has the last word: the impact replaces the
+startup and the unlock replaces the advantage.
+
+The counter (`+0x7C`) restarts at 1 on the first frame of every animation and
+counts up one per game frame, so its value *is* the move's frame number.  That
+is the reference used for the startup: counting samples instead made the
+measurement drift (a jab on block came out as i11 when the move id appeared a
+sample before the counter reset, and as i8 when the reader lost a frame).
 
 where "unlock" is the `recovery tail` byte (+0x295) rising to 1 for each
 player, i.e. the exact frame in which that player can act again.  The old
@@ -22,15 +33,19 @@ Both trackers share ONE game-frame clock.  Each player's animation counter
 repeats a value now and then, so a clock per tracker drifted apart and the
 punish window (a P1 frame compared against a P2 frame) was garbage.
 
-Move ids are per character, so nothing is assumed about them: the label is the
-raw id (`#7`) and the measurement is identical for every character.  Optional
-names come from tools/notation.json (`--p1-char`, `--p2-char`).
+Move ids are per character, so nothing is assumed about them: without a table
+the label is the raw id (`#7`) and the measurement is identical for every
+character.  With `--p1-char/--p2-char` the label and the prediction come from
+`data/` (scraper + mapper + `--learn`); `tools/notation.json` still works as a
+manual fallback.
 
     python tools/hud.py
     python tools/hud.py --x 40 --y 40        # fixed position
     python tools/hud.py --debug              # also print to the console
     python tools/hud.py --p1-char bryan --p2-char bruce
     python tools/hud.py --no-predict         # no ~adelanto
+    python tools/hud.py --learn              # learn unknown ids/states
+    python tools/hud.py --settings           # F8 panel (position, opacity, font)
 """
 from __future__ import annotations
 
@@ -46,8 +61,30 @@ import time
 import tkinter as tk
 from tkinter import font as tkfont
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+FROZEN = bool(getattr(sys, "frozen", False))
+# En el .exe (PyInstaller) los datos viajan junto al ejecutable o en _MEIPASS.
+ROOT = os.path.dirname(sys.executable) if FROZEN else os.path.dirname(HERE)
+
+
+def _resource_dir(name):
+    """data/ dentro del .exe (onedir/onefile) o del repositorio."""
+    for base in (ROOT, getattr(sys, "_MEIPASS", ROOT)):
+        candidate = os.path.join(base, name)
+        if os.path.isdir(candidate):
+            return candidate
+    return os.path.join(ROOT, name)
+
+
+DATA_DIR = _resource_dir("data")
+CONFIG_PATH = os.path.join(ROOT, "config", "hud.json")
+
+sys.path.insert(0, HERE)
+import game_states  # noqa: E402
 import psp_mem  # noqa: E402
+from learn import Learner  # noqa: E402
+from lookup_engine import FrameTableLookup  # noqa: E402
+from tracker_hybrid import HybridTracker  # noqa: E402
 
 # ---------------------------------------------------------------- addresses --
 P1 = 0x08C078C0
@@ -93,8 +130,14 @@ def load_notation(name):
         pass
     return table
 
-IDLE_STATES = {6466, 6482, 14633}   # defender state values while neutral
-BLOCK_STATE = 4178                  # defender state while in blockstun
+# Estados de reacción.  4178 (blockstun de pie) está verificado; la guardia
+# agachada y otras variantes se aprenden con --learn y se guardan en
+# data/states.json, sin tocar el código.
+_STATES = game_states.load_states()
+IDLE_STATES = _STATES["idle_states"]
+BLOCK_STATES = _STATES["block_states"]
+ATTACK_STATES = _STATES["attack_states"]
+BLOCK_STATE = 4178                  # alias histórico (blockstun de pie)
 ATTACK_STATE = 2114                 # attack *and* hitstun: never used alone
 
 # ------------------------------------------------------------------ colours --
@@ -116,8 +159,16 @@ class Reader:
         self.pid = None
         self.buf = None
         self.host = None
+        self.game_id = None     # disc ID detectado en RAM (ULES01376, ...)
+        self._id_probed = False
         self.dead = False       # emulator gone -> the overlay shuts itself down
         self.t0 = time.time()   # used for the "no emulator at all" grace period
+
+    def _probe_game_id(self, base, size):
+        try:
+            self.game_id = psp_mem.detect_game_id(self.h, base, size)
+        except BaseException:
+            self.game_id = None
 
     def ensure(self):
         if self.h is not None:
@@ -128,6 +179,13 @@ class Reader:
             self.buf = ctypes.create_string_buffer(SPAN)
             base, _size = psp_mem.find_ram(self.h)
             self.host = base + (P1 - psp_mem.PSP_RAM_START)
+            if not self._id_probed:
+                # 32 MB de escaneo: en un hilo aparte para no retrasar la
+                # primera muestra de telemetría.
+                self._id_probed = True
+                threading.Thread(
+                    target=self._probe_game_id, args=(base, _size), daemon=True
+                ).start()
             return True
         except BaseException:
             self.h = None
@@ -200,8 +258,10 @@ class Tracker:
     saved recording (see tools/replay.py).
     """
 
-    def __init__(self, notation=None):
+    def __init__(self, notation=None, block_states=None, emit_start=False):
         self.notation = {} if notation is None else notation
+        self.block_states = set(block_states or BLOCK_STATES)
+        self.emit_start = emit_start   # avisa del Move ID en el frame 0
         self.frame = 0
         self.prev_c1 = None
         self.prev_tail1 = 0
@@ -210,17 +270,21 @@ class Tracker:
         self.hp_drop_frame = -999
         self.prev_s2 = None
         self.prev_c2 = None
+        self.unknown_state = None  # reacción de guardia no catalogada (--learn)
 
         # Move-id debounce: the game blips some ids for a single sample
         # (e.g. 15 -> 16 -> 12 on the same frame) before settling.
         self.mid_cand = 0
         self.mid_count = 0
         self.mid_frame = 0
+        self.mid_c1 = None        # counter on the sample the id first appeared
         self.mid = 0
 
         self.segments = []        # [(start_frame, label)] current animation
         self.seg_start = None
+        self.seg_c0 = None        # animation counter on the segment's 1st frame
         self.contact = None       # measurement in progress
+        self.last_c1 = None       # raw counter of the previous sample
 
     # -- helpers --------------------------------------------------------
     def label_for(self, mid):
@@ -242,12 +306,18 @@ class Tracker:
         return seg
 
     def event(self, phase, contact, adv):
+        # The startup comes from the animation counter when the segment was
+        # timed with it; the clock difference is only the fallback for moves
+        # whose counter did not restart (rare cancels).
+        startup = contact.get("startup")
+        if startup is None:
+            startup = max(1, contact["impact"] - contact["start"] + 1)
         return {
             "phase": phase,
             "frame": self.frame,
             "impact": contact["impact"],
             "start": contact["start"],
-            "startup": max(1, contact["impact"] - contact["start"] + 1),
+            "startup": startup,
             "adv": adv,
             "kind": contact["kind"],
             "label": contact["label"],
@@ -260,6 +330,7 @@ class Tracker:
     def reset_state(self):
         self.segments = []
         self.seg_start = None
+        self.seg_c0 = None
         self.contact = None
 
     # -- main -----------------------------------------------------------
@@ -282,17 +353,25 @@ class Tracker:
 
         # ---- move id, debounced ---------------------------------------
         raw = s["mid"]
+        c1 = s["c1"]
+        # The game restarts the animation counter at 1 on the first frame of
+        # every animation, so a counter that goes back is a brand-new move.
+        c_reset = self.last_c1 is not None and c1 < self.last_c1 and c1 <= 2
+        mid_changed = False
+
         if raw == self.mid_cand:
             self.mid_count += 1
         else:
             self.mid_cand = raw
             self.mid_count = 1
             self.mid_frame = self.frame
+            self.mid_c1 = c1
 
         # accept once it survives a second sample or crosses into a new
         # frame; the segment starts on the frame the id first appeared
         if raw != self.mid and (self.mid_count >= 2 or self.frame > self.mid_frame):
             self.mid = raw
+            mid_changed = True
             if raw:
                 start = self.mid_frame
                 if self.seg_start is None:
@@ -301,10 +380,40 @@ class Tracker:
                     self.segments.append((start, self.label_for(raw)))
                     del self.segments[:-4]
                 self.seg_start = start
+                # Counter-timed only when the animation restarted with the id:
+                # then its value is the move's frame number (1, 2, 3, ...).
+                # The counter is read on the sample the id *appeared*, not on
+                # the sample the debounce accepted it (already +1).
+                self.seg_c0 = self.mid_c1 if (self.mid_c1 or 99) <= 3 else None
+                if self.emit_start:
+                    # Frame 0 del movimiento: el motor híbrido proyecta la
+                    # tabla aquí, antes de que exista ningún impacto.
+                    events.append({
+                        "phase": "start",
+                        "frame": self.frame,
+                        "start": start,
+                        "impact": None,
+                        "startup": None,
+                        "adv": None,
+                        "kind": "",
+                        "label": self.label_for(raw),
+                        "mid": raw,
+                    })
             else:
                 self.seg_start = None
+                self.seg_c0 = None
                 if self.contact is None:
                     self.segments = []
+
+        if c_reset and self.seg_start is not None:
+            if self.mid and not mid_changed:
+                # Same move id pressed again (jab -> jab): the id never goes
+                # back to 0, only the counter restarts.  Without this the
+                # second jab was measured from the first one (i43, i45...).
+                self.seg_start = self.frame
+                self.segments.append((self.frame, self.label_for(self.mid)))
+                del self.segments[:-4]
+            self.seg_c0 = c1
 
         # ---- contacts --------------------------------------------------
         # Two unambiguous signals:
@@ -325,15 +434,36 @@ class Tracker:
         d_new = self.prev_s2 is not None and d_state != self.prev_s2
 
         hit = hp_drop
-        blocked = d_state == BLOCK_STATE and (d_new or d_anim)
+        blocked = d_state in self.block_states and (d_new or d_anim)
+
+        # Reacción de guardia no catalogada (p. ej. guardia agachada): el
+        # contador del defensor reinicia dentro de un movimiento activo y el
+        # estado no es idle/ataque/guardia conocida.  El HUD con --learn lo
+        # ofrece para añadirlo a data/states.json.
+        self.unknown_state = None
+        if (self.seg_start is not None and d_anim and not hit
+                and d_state not in self.block_states
+                and d_state not in IDLE_STATES
+                and d_state not in ATTACK_STATES):
+            self.unknown_state = d_state
 
         if self.seg_start is not None and (hit or blocked):
             impact = self.frame
             self.contact = None      # a new hit means the string goes on
             seg = self.pick_segment(impact)
+            # Startup: the animation counter is the move's frame number, so it
+            # does not care about samples the reader lost nor about the move id
+            # appearing one sample before the counter restarts.  Both used to
+            # shift the number by +-1 (block read i11, hit read i8).
+            # Exception: when the counter restarts *on* the contact (the next
+            # hit of a string), its value is 1 and the clock is the reference.
+            startup = None
+            if not c_reset and self.seg_c0 is not None and self.seg_c0 <= c1 <= 300:
+                startup = c1 - self.seg_c0 + 1
             self.contact = {
                 "impact": impact,
                 "start": seg[0],
+                "startup": startup,
                 "label": seg[1],
                 "mid": s["mid"],
                 "kind": "HIT" if hit else "BLOCK",
@@ -366,6 +496,7 @@ class Tracker:
         self.prev_tail1 = s["tail1"]
         self.prev_tail2 = s["tail2"]
         self.prev_hp = s["hp2"]
+        self.last_c1 = c1
         return events
 
 
@@ -383,19 +514,31 @@ class TrackerThread(threading.Thread):
     CACHE_TTL = 120.0    # seconds a measured value is reused as a prediction
 
     def __init__(self, out, debug=False, p1_notation=None, p2_notation=None,
-                 predict=True):
+                 predict=True, block_states=None, hybrid=None, learner=None,
+                 data_dir=None):
         super().__init__(daemon=True)
         self.out = out
         self.debug = debug
         self.predict = predict
+        self.data_dir = data_dir
         self.rd = Reader()
-        self.t1 = Tracker(p1_notation)      # P1 attacks, P2 defends
-        self.t2 = Tracker(p2_notation)      # P2 attacks, P1 defends (mirrored)
+        self.block_states = set(block_states or BLOCK_STATES)
+        self.t1 = Tracker(p1_notation, self.block_states, emit_start=True)
+        self.t2 = Tracker(p2_notation, self.block_states, emit_start=True)
+        self.hybrid = hybrid        # proyección de tabla + confirmación
+        self.learner = learner      # modo --learn (IDs y estados nuevos)
+        self.display = {"P1": None, "P2": None}
         self.running = True
         self.clock = 0
         self.clock_c = None
         self.last_block = None   # last BLOCK exchange, kept after its final
         self.cache = {}          # (move id, kind) -> (advantage, timestamp)
+
+    def reload_states(self):
+        """Recarga data/states.json (--learn añadió una guardia nueva)."""
+        self.block_states = game_states.load_states(self.data_dir)["block_states"]
+        for tracker in (self.t1, self.t2):
+            tracker.block_states = self.block_states
 
     # -- punish ---------------------------------------------------------
     def punish_reason(self, ev):
@@ -458,6 +601,14 @@ class TrackerThread(threading.Thread):
         self.out.put(ev)
         if not self.debug:
             return
+        if ev["phase"] == "start":
+            display = ev.get("display")
+            hint = ""
+            if display is not None and display.hit_type == "PREDICT":
+                hint = f"  tabla {display.startup_str} {display.advantage_str}"
+            print(f"  f{ev['frame']:6d} {ev['side']} start  {ev['label']:5s}{hint}",
+                  flush=True)
+            return
         adv = "-" if ev["adv"] is None else f"{ev['adv']:+d}"
         pred = "" if ev.get("predict") is None else f" ~{ev['predict']:+d}"
         tag = ""
@@ -472,6 +623,53 @@ class TrackerThread(threading.Thread):
             flush=True,
         )
 
+    def tick(self, s):
+        """Advance the shared clock by the game frames this sample represents.
+
+        The counter changes once per game frame, so the *difference* is the
+        number of frames that went by.  Counting changes instead lost every
+        frame the reader missed (measured gaps of 2-3 frames made a jab come
+        out as i8).  A counter that goes backwards is a new animation: one
+        frame.
+        """
+        c1 = s["c1"]
+        if c1 != self.clock_c:
+            if self.clock_c is None:
+                self.clock += 1
+            else:
+                d = c1 - self.clock_c
+                self.clock += d if 1 <= d <= 10 else 1
+            self.clock_c = c1
+        return self.clock
+
+    def _project(self, ev):
+        """Fase 1 del motor híbrido: dato de tabla en el frame 0 del movimiento."""
+        side = ev["side"]
+        player = 1 if side == "P1" else 2
+        display = None
+        if self.hybrid is not None:
+            display = self.hybrid.project(player, ev["mid"])
+        self.display[side] = display
+        ev["display"] = display
+        ev["predict"] = None
+        if self.learner is not None:
+            self.learner.offer_move(side, ev["mid"])
+
+    def _confirm(self, ev):
+        """Fase 2: la medición de memoria sustituye al dato proyectado."""
+        if self.hybrid is None:
+            return
+        side = ev["side"]
+        adv = ev["adv"] if ev["phase"] == "final" else None
+        kind = "PUNISH" if ev.get("punish") else ev["kind"]
+        ev["display"] = self.hybrid.confirm(
+            self.display.get(side), ev["mid"], ev["startup"], adv, kind, side
+        )
+
+    def _learn_state(self, state):
+        if self.learner is not None and state:
+            self.learner.offer_state(state)
+
     def feed(self, s):
         """Process one sample: advance the clock and run both trackers.
 
@@ -480,14 +678,14 @@ class TrackerThread(threading.Thread):
         """
         # One clock for both sides.  P1's animation counter changes exactly
         # once per game frame and freezes only when the game does.
-        if s["c1"] != self.clock_c:
-            self.clock += 1
-            self.clock_c = s["c1"]
+        self.tick(s)
 
         # P1 as attacker.
         for ev in self.t1.step(s, self.clock):
             ev["side"] = "P1"
-            if ev["phase"] == "impact":
+            if ev["phase"] == "start":
+                self._project(ev)
+            elif ev["phase"] == "impact":
                 why = self.punish_reason(ev)
                 ev["punish"] = why == "ok"
                 ev["punish_why"] = why
@@ -501,26 +699,35 @@ class TrackerThread(threading.Thread):
                     # One block, one punish: a combo hit must not be flagged
                     # again against the same exchange.
                     self.last_block = None
+                self._confirm(ev)
             else:
                 ev["predict"] = self.remember(ev)
+                self._confirm(ev)
             self.emit(ev)
+        self._learn_state(self.t1.unknown_state)
 
         # P2 as attacker (mirrored): the defense side.
         for ev in self.t2.step(mirror(s), self.clock):
             ev["side"] = "P2"
-            if ev["phase"] == "impact":
+            if ev["phase"] == "start":
+                self._project(ev)
+            elif ev["phase"] == "impact":
                 ev["predict"] = self.predicted(ev)
                 if ev["kind"] == "BLOCK":
                     self.last_block = self.t2.contact
+                self._confirm(ev)
             else:
                 # Drop the interrupted value *before* caching it: its recovery
                 # was cut short, so it is not this move's real advantage.
                 if ev["punished"]:
                     ev["adv"] = None
                 ev["predict"] = self.remember(ev)
+                self._confirm(ev)
             self.emit(ev)
+        self._learn_state(self.t2.unknown_state)
 
     def run(self):
+        boost_timer()
         fails = 0
         while self.running:
             s = self.rd.sample()
@@ -603,6 +810,19 @@ def colour(adv, kind):
     return C_BAD
 
 
+def boost_timer():
+    """Ask Windows for a 1 ms timer resolution.
+
+    Without it `time.sleep(0.0005)` really sleeps ~15.6 ms on Windows: the
+    reader sampled *slower* than the game and lost whole frames (the log shows
+    2-3 frame holes), which corrupted every measurement that counts frames.
+    """
+    try:
+        ctypes.windll.winmm.timeBeginPeriod(1)
+    except Exception:
+        pass
+
+
 def enable_dpi_awareness():
     """Make Windows report real pixels to this process.
 
@@ -629,6 +849,66 @@ def single_instance(name="Local\\T6FramesHud"):
     return h
 
 
+# ------------------------------------------------------------------- config --
+DEFAULT_CONFIG = {
+    "x": None,
+    "y": None,
+    "opacity": 100,
+    "font_size": 28,
+    "always_on_top": True,
+    "hotkey_settings": "F8",
+}
+
+VK = {"F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B}
+
+
+def load_config():
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            for key in DEFAULT_CONFIG:
+                if key in data:
+                    cfg[key] = data[key]
+    except (OSError, ValueError):
+        pass
+    return cfg
+
+
+def save_config(cfg):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    except OSError as exc:
+        print(f"[config] no se pudo guardar: {exc}", file=sys.stderr)
+
+
+def hotkey_down(name):
+    """True una sola vez por pulsación (borde) para la tecla indicada."""
+    vk = VK.get(str(name).upper())
+    if not vk:
+        return False
+    return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x0001)
+
+
+def notation_for(char, lookup):
+    """Etiquetas: tools/notation.json + las del catálogo compilado."""
+    table = load_notation(char)
+    if char and lookup is not None and lookup.has_character(char):
+        key = char.strip().lower()
+        source = lookup.sources.get(key, "")
+        # `data/raw/` está indexado por NOTACIÓN, no por Move ID: usarlo como
+        # etiqueta pondría el ID 1 como "1" (coincidencia falsa).
+        if not source.endswith("_raw.json"):
+            for move_id, info in lookup.tables[key].items():
+                if info.get("notation") and str(move_id).isdigit():
+                    table[int(move_id)] = str(info["notation"])
+    return table
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--x", type=int, default=None)
@@ -636,11 +916,19 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--no-click-through", action="store_true")
     ap.add_argument("--p1-char", default=None,
-                    help="tabla de notación para P1 (bryan, o una clave de tools/notation.json)")
+                    help="personaje de P1 (tabla de datos y notación: bryan, jin...)")
     ap.add_argument("--p2-char", default=None,
-                    help="tabla de notación para P2")
+                    help="personaje de P2")
     ap.add_argument("--no-predict", action="store_true",
                     help="no adelantar el valor medido la última vez")
+    ap.add_argument("--no-table", action="store_true",
+                    help="solo telemetría: no proyectar la tabla teórica")
+    ap.add_argument("--data-dir", default=None,
+                    help="carpeta data/ (raw, mappings, compiled, states.json)")
+    ap.add_argument("--learn", action="store_true",
+                    help="aprender IDs y estados nuevos por consola")
+    ap.add_argument("--settings", action="store_true",
+                    help="abrir el panel de ajustes (también con F8)")
     a = ap.parse_args()
 
     enable_dpi_awareness()
@@ -650,24 +938,65 @@ def main():
         print("overlay already running", file=sys.stderr)
         return
 
+    cfg = load_config()
+    if a.x is not None:
+        cfg["x"] = a.x
+    if a.y is not None:
+        cfg["y"] = a.y
+
+    data_dir = a.data_dir or DATA_DIR
+    states = game_states.load_states(data_dir)
+    lookup = FrameTableLookup(data_dir)
+    for char in (a.p1_char, a.p2_char):
+        if char:
+            lookup.load_character(char)
+    hybrid = None if a.no_table else HybridTracker(lookup, a.p1_char, a.p2_char)
+
     results: queue.Queue = queue.Queue()
+    holder = {}
+
+    def on_learn(kind, value):
+        if kind == "move":
+            lookup.reload(value)
+        else:
+            tracker = holder.get("tracker")
+            if tracker is not None:
+                tracker.reload_states()
+
+    learner = None
+    if a.learn:
+        if not (a.p1_char or a.p2_char):
+            print("[learn] --learn necesita --p1-char y/o --p2-char", file=sys.stderr)
+        else:
+            learner = Learner(
+                {"P1": a.p1_char, "P2": a.p2_char},
+                data_dir=data_dir, lookup=lookup, on_change=on_learn,
+            )
+
     tracker = TrackerThread(
         results,
         debug=a.debug,
-        p1_notation=load_notation(a.p1_char),
-        p2_notation=load_notation(a.p2_char),
+        p1_notation=notation_for(a.p1_char, lookup),
+        p2_notation=notation_for(a.p2_char, lookup),
         predict=not a.no_predict,
+        block_states=states["block_states"],
+        hybrid=hybrid,
+        learner=learner,
+        data_dir=data_dir,
     )
+    holder["tracker"] = tracker
     tracker.start()
 
     root = tk.Tk()
     root.title("T6 frames")
     root.overrideredirect(True)
-    root.attributes("-topmost", True)
+    root.attributes("-topmost", bool(cfg.get("always_on_top", True)))
     root.attributes("-transparentcolor", BG_KEY)
     root.configure(bg=BG_KEY)
+    root.attributes("-alpha", max(30, int(cfg.get("opacity", 100))) / 100.0)
 
-    f_big = tkfont.Font(family="Consolas", size=28, weight="bold")
+    f_big = tkfont.Font(family="Consolas", size=int(cfg.get("font_size", 28)),
+                        weight="bold")
     f_small = tkfont.Font(family="Consolas", size=12, weight="bold")
 
     W, H = 620, 96
@@ -704,8 +1033,8 @@ def main():
         rows[side] = cell
 
     def place():
-        if a.x is not None and a.y is not None:
-            return a.x, a.y
+        if cfg.get("x") is not None and cfg.get("y") is not None:
+            return int(cfg["x"]), int(cfg["y"])
         pid = tracker.rd.pid
         if pid:
             rect = find_game_window(pid)
@@ -743,11 +1072,25 @@ def main():
                 oc = rows[other]
                 adv = res.get("adv")
                 phase = res["phase"]
+                display = res.get("display")
 
-                if phase == "impact":
+                if phase == "start":
+                    # Fase 1 del motor híbrido: dato de tabla al instante.
+                    cell["punish"] = False
+                    put(cell["move"], res.get("label", ""), C_DIM)
+                    if display is not None and display.hit_type == "PREDICT":
+                        put(cell["startup"], display.startup_str, C_DIM)
+                        put(cell["value"], display.advantage_str, C_DIM)
+                        put(cell["kind"], "TABLA", C_DIM)
+                    else:
+                        put(cell["startup"], "", C_DIM)
+                        put(cell["value"], "—", C_DIM)
+                        put(cell["kind"], "", C_DIM)
+                elif phase == "impact":
                     cell["punish"] = bool(res.get("punish"))
                     put(cell["move"], res.get("label", ""), C_DIM)
-                    put(cell["startup"], f"i{res['startup']}", "#F2F2F2")
+                    startup_txt = display.startup_str if display else f"i{res['startup']}"
+                    put(cell["startup"], startup_txt, "#F2F2F2")
                     pred = res.get("predict")
                     # The exact advantage is only known when the *later* player
                     # unlocks (~0.5 s).  Until then show the value measured the
@@ -787,13 +1130,130 @@ def main():
         root.after(25, poll)
 
     def reposition():
-        if a.x is None:
+        if cfg.get("x") is None:
             nx, ny = place()
             root.geometry(f"+{nx}+{ny}")
         root.after(700, reposition)
 
+    # ---- panel de ajustes (F8 o --settings) -----------------------------
+    settings = {"win": None}
+    ui = {"hotkey": None}
+
+    def apply_settings(*_):
+        cfg["opacity"] = int(sv_opacity.get())
+        cfg["font_size"] = int(sv_font.get())
+        cfg["always_on_top"] = bool(sv_top.get())
+        if ui["hotkey"] is not None:
+            cfg["hotkey_settings"] = ui["hotkey"].get()
+        root.attributes("-alpha", max(30, cfg["opacity"]) / 100.0)
+        root.attributes("-topmost", cfg["always_on_top"])
+        f_big.configure(size=cfg["font_size"])
+        raw_x = sv_x.get().strip()
+        raw_y = sv_y.get().strip()
+        cfg["x"] = int(raw_x) if raw_x.lstrip("-").isdigit() else None
+        cfg["y"] = int(raw_y) if raw_y.lstrip("-").isdigit() else None
+        if cfg["x"] is not None and cfg["y"] is not None:
+            root.geometry(f"+{cfg['x']}+{cfg['y']}")
+
+    def close_settings():
+        win = settings["win"]
+        if win is not None:
+            win.withdraw()
+
+    def open_settings():
+        if settings["win"] is not None:
+            settings["win"].deiconify()
+            settings["win"].lift()
+            return
+        win = tk.Toplevel(root)
+        settings["win"] = win
+        win.title("FRAMEMOD - Ajustes")
+        win.geometry("380x360+60+60")
+        win.attributes("-topmost", True)
+        win.configure(bg="#202020")
+        win.protocol("WM_DELETE_WINDOW", close_settings)
+
+        fg = "#E0E0E0"
+        sv_x.set("" if cfg.get("x") is None else str(cfg["x"]))
+        sv_y.set("" if cfg.get("y") is None else str(cfg["y"]))
+        sv_opacity.set(int(cfg.get("opacity", 100)))
+        sv_font.set(int(cfg.get("font_size", 28)))
+        sv_top.set(bool(cfg.get("always_on_top", True)))
+
+        tk.Label(win, text="Posición X / Y (vacío = automática)", bg="#202020",
+                 fg=fg, anchor="w").pack(fill="x", padx=12, pady=(10, 2))
+        row = tk.Frame(win, bg="#202020")
+        row.pack(fill="x", padx=12)
+        tk.Entry(row, textvariable=sv_x, width=8).pack(side="left")
+        tk.Entry(row, textvariable=sv_y, width=8).pack(side="left", padx=8)
+
+        tk.Label(win, text="Opacidad (%)", bg="#202020", fg=fg,
+                 anchor="w").pack(fill="x", padx=12, pady=(10, 0))
+        tk.Scale(win, from_=30, to=100, orient="horizontal", variable=sv_opacity,
+                 bg="#202020", fg=fg, highlightthickness=0).pack(fill="x", padx=12)
+
+        tk.Label(win, text="Tamaño de fuente", bg="#202020", fg=fg,
+                 anchor="w").pack(fill="x", padx=12)
+        tk.Scale(win, from_=14, to=44, orient="horizontal", variable=sv_font,
+                 bg="#202020", fg=fg, highlightthickness=0).pack(fill="x", padx=12)
+
+        tk.Checkbutton(win, text="Siempre encima", variable=sv_top, bg="#202020",
+                       fg=fg, selectcolor="#202020",
+                       activebackground="#202020").pack(anchor="w", padx=12)
+
+        tk.Label(win, text="Tecla del panel", bg="#202020", fg=fg,
+                 anchor="w").pack(fill="x", padx=12, pady=(8, 0))
+        hotkey = tk.StringVar(value=str(cfg.get("hotkey_settings", "F8")).upper())
+        ui["hotkey"] = hotkey
+        menu = tk.OptionMenu(win, hotkey, *sorted(VK))
+        menu.configure(bg="#202020", fg=fg, highlightthickness=0)
+        menu.pack(anchor="w", padx=12)
+
+        info = tk.Label(win, text="", bg="#202020", fg="#9E9E9E", anchor="w")
+        info.pack(fill="x", padx=12, pady=(6, 0))
+
+        def refresh_info():
+            pid = tracker.rd.pid
+            disc = getattr(tracker.rd, "game_id", None)
+            info.configure(
+                text=f"PPSSPP: {'sí' if pid else 'no'}   juego: {disc or '—'}"
+                     f"   datos: {'sí' if hybrid else 'no'}"
+            )
+            win.after(1000, refresh_info)
+
+        buttons = tk.Frame(win, bg="#202020")
+        buttons.pack(fill="x", padx=12, pady=10)
+
+        def save_and_close():
+            apply_settings()
+            save_config(cfg)
+            close_settings()
+
+        tk.Button(buttons, text="Guardar", command=save_and_close).pack(side="right")
+        tk.Button(buttons, text="Aplicar", command=apply_settings).pack(side="right", padx=6)
+        tk.Button(buttons, text="Cerrar", command=close_settings).pack(side="right")
+        refresh_info()
+
+    sv_x = tk.StringVar()
+    sv_y = tk.StringVar()
+    sv_opacity = tk.IntVar()
+    sv_font = tk.IntVar()
+    sv_top = tk.BooleanVar()
+
+    def watch_hotkey():
+        if hotkey_down(cfg.get("hotkey_settings", "F8")):
+            if settings["win"] is not None and settings["win"].winfo_viewable():
+                close_settings()
+            else:
+                open_settings()
+        root.after(120, watch_hotkey)
+
+    if a.settings:
+        open_settings()
+
     poll()
     reposition()
+    watch_hotkey()
     try:
         root.mainloop()
     except KeyboardInterrupt:

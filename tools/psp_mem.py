@@ -29,6 +29,9 @@ PSP_RAM_START = 0x08000000
 PSP_USER_START = 0x08800000
 PSP_RAM_SIZES = {0x01800000, 0x02000000, 0x04000000}
 
+# Disc IDs de Tekken 6 (PSP) conocidos: EU, US, JP, KO, AS.
+DISC_IDS = (b"ULES01376", b"ULUS10466", b"ULJM05491", b"ULKS46179", b"ULAS42280")
+
 
 class MEMORY_BASIC_INFORMATION64(ctypes.Structure):
     _fields_ = [
@@ -198,12 +201,45 @@ def find_ram(h):
     return best[0], best[1]
 
 
+def detect_game_id(h, ram_base: int, size: int) -> str | None:
+    """Busca el disc ID del juego en la RAM PSP (independiente de la región).
+
+    Los SFO/PBP dejan el ID (`ULES01376`, `ULUS10466`, ...) como cadena
+    terminada en NUL dentro de la RAM emulada.  Se recorre en bloques de 1 MB
+    con solape para no perder coincidencias en los bordes.
+    """
+    import re
+
+    pattern = re.compile(rb"U[ELJK][A-Z]{2}\d{5}\x00")
+    chunk = 1 << 20
+    overlap = 16
+    carry = b""
+    addr = ram_base
+    end = ram_base + size
+    while addr < end:
+        data = read_mem(h, addr, min(chunk, end - addr))
+        if data:
+            blob = carry + data
+            for disc in DISC_IDS:
+                if disc in blob:
+                    return disc.decode()
+            match = pattern.search(blob)
+            if match:
+                return match.group(0)[:-1].decode()
+            carry = blob[-overlap:]
+        else:
+            carry = b""
+        addr += chunk
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pid", type=int)
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--candidates", action="store_true")
     ap.add_argument("--find", action="store_true")
+    ap.add_argument("--game-id", action="store_true", help="detecta el disc ID del juego")
     ap.add_argument("--read", nargs=2, metavar=("PSP_ADDR", "SIZE"))
     ap.add_argument("--hex", action="store_true")
     args = ap.parse_args()
@@ -237,6 +273,12 @@ def main():
         base, size = find_ram(h)
         print(f"ram_host=0x{base:016X} ram_size=0x{size:X}")
         print(f"psp_0x08800000_host=0x{base + 0x00800000:016X}")
+        return
+
+    if args.game_id:
+        base, size = find_ram(h)
+        disc = detect_game_id(h, base, size)
+        print(f"game_id={disc or 'desconocido'}")
         return
 
     if args.read:

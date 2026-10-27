@@ -27,7 +27,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, ROOT)
 
-from hud import TrackerThread, load_notation  # noqa: E402
+from hud import TrackerThread, boost_timer, load_notation  # noqa: E402
 
 
 class NullQueue:
@@ -43,6 +43,11 @@ class DiagTracker(TrackerThread):
         self.log = log
 
     def emit(self, ev):
+        if ev["phase"] == "start":
+            self.log.write(
+                f"  >> f{ev['frame']:6d} {ev['side']} start  {ev['label']:5s}\n"
+            )
+            return
         adv = "-" if ev["adv"] is None else f"{ev['adv']:+d}"
         pred = "" if ev.get("predict") is None else f" ~{ev['predict']:+d}"
         tag = ""
@@ -69,15 +74,18 @@ def main() -> None:
 
     t0 = time.time()
     frames = 0
+    boost_timer()
     while time.time() - t0 < secs:
         s = tt.rd.sample()
         if s is None:
             time.sleep(0.05)
             continue
         frames += 1
-        if s["c1"] != tt.clock_c:
+        changed = s["c1"] != tt.clock_c
+        frame = tt.tick(s)
+        if changed:
             out.write(
-                f"f{tt.clock + 1:6d} t={time.time() - t0:7.3f} "
+                f"f{frame:6d} t={time.time() - t0:7.3f} "
                 f"P1 c={s['c1']:5d} mid={s['mid']:3d} tail={s['tail1']} "
                 f"free={s['free1']} s={s['s1']:5d} hp={s['hp1']:3d} | "
                 f"P2 c={s['c2']:5d} mid={s['mid2']:3d} tail={s['tail2']} "

@@ -11,3 +11,11 @@ tools/luajit/
 
 # Configuración local de skills
 .agents/
+
+# Ajustes locales del HUD (posición, opacidad, fuente)
+config/hud.json
+
+# Artefactos de PyInstaller
+build/
+dist/
+*.spec.bak

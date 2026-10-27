@@ -1,8 +1,8 @@
 # 🧪 Guía de pruebas — FRAMEMOD (Tekken 6 PSP)
 
 Guía para probar el HUD **tú mismo**, con PPSSPP lanzado desde tu escritorio y
-`tools/hud.py` ejecutado desde el terminal de VS Code. No hace falta el daemon
-de teclado ni inyectar botones: todo se mide con lo que tú juegas.
+`tools/hud.py` ejecutado desde el terminal de VS Code. No hace falta el bus de
+teclado ni inyectar botones: todo se mide con lo que tú juegas.
 
 ---
 
@@ -47,9 +47,12 @@ Variantes útiles:
 
 ```powershell
 python tools/hud.py                                  # sin consola
-python tools/hud.py --p1-char bryan --p2-char bruce  # nombres de golpe
+python tools/hud.py --p1-char bryan --p2-char bruce  # tabla + nombres de golpe
 python tools/hud.py --no-predict                     # sin el valor adelantado (~)
 python tools/hud.py --x 40 --y 40                    # posición fija (si tapa algo)
+python tools/hud.py --settings                       # panel de ajustes (F8)
+python tools/hud.py --p1-char bryan --learn          # aprender IDs nuevos
+python tools/hud.py --no-table                       # solo memoria (sin teóricos)
 ```
 
 ### Qué debe pasar
@@ -157,11 +160,11 @@ lista actual es `−15`).
 |---|---|
 | El nombre del golpe sale como `#7`, `#21`… (id crudo) | ☐ |
 | El `startup` y la ventaja se siguen midiendo igual | ☐ |
-| Con `--p1-char bryan` vuelven los nombres de Bryan | ☐ |
+| Con `--p1-char bryan` vuelven los nombres y el teórico (`i10~`) | ☐ |
 
 > El id de movimiento es **de cada personaje**, por eso el HUD no inventa
-> nombres: mide igual para todos y solo etiqueta lo que tú le digas en
-> `tools/notation.json`.
+> nombres: mide igual para todos. Con `data/compiled/<pj>.json` (scraper) o
+> `--learn` se ponen los nombres reales.
 
 ### 4.7 Overlay
 
@@ -172,14 +175,61 @@ lista actual es `−15`).
 | Arrastra/mueve PPSSPP | el panel lo sigue | ☐ |
 | Abre el menú de Practice | los números se congelan (el juego está pausado) | ☐ |
 
-### 4.8 Sin el juego (opcional)
+### 4.8 Motor híbrido (tabla local)
+
+Con `--p1-char bryan` (ya hay `data/compiled/bryan.json`):
+
+| Prueba | Esperado | Hecho |
+|---|---|---|
+| Haz `1` con el dummy bloqueando | al empezar: `P1 1 i10~ +1~ TABLA` (gris) | ☐ |
+| Espera el impacto | `i10~` pasa a `i10` (sin `~`) y luego `+1` con color | ☐ |
+| Haz `3+4` | al empezar `i18~ −8~`, luego medido | ☐ |
+| `--no-table` | nunca aparece `TABLA`; solo lo medido | ☐ |
+| Personaje sin tabla | `#id` y sin teórico (mide igual) | ☐ |
+
+### 4.9 Auto-aprendizaje (`--learn`)
+
+1. Lanza `python tools/hud.py --p1-char bryan --learn`.
+2. Haz un movimiento que **no** esté en `data/mappings/bryan_map.json`
+   (p. ej. `f+2`).
+
+| Esperado | Hecho |
+|---|---|
+| En consola: `[learn] bryan: ID #N sin mapear. Notación del juego:` | ☐ |
+| Escribe la notación (`f+2`) + Enter | `[learn] #N -> f+2 guardado y compilado` | ☐ |
+| Sin reiniciar, repite el movimiento | ya sale `f+2` en el HUD | ☐ |
+| Si el movimiento no está en `data/raw`, sale `#N` (falta scrapear) | ☐ |
+
+3. Guardia agachada: con `--learn`, bloquea agachado un golpe del dummy.
+
+| Esperado | Hecho |
+|---|---|
+| Pregunta `estado NNNN desconocido… ¿Añadirlo como guardia?` | ☐ |
+| Responde `s` y vuelve a bloquear agachado | ahora cuenta como `BLOCK` | ☐ |
+| `data/states.json` contiene el valor nuevo | ☐ |
+
+> Si el prompt no aparece, ese estado ya estaba en `data/states.json` o el
+> bloqueo no reinició el contador del defensor (bloquea en el último momento).
+
+### 4.10 Panel de ajustes (F8)
+
+| Prueba | Esperado | Hecho |
+|---|---|---|
+| Pulsa **F8** | se abre la ventana «FRAMEMOD - Ajustes» | ☐ |
+| Mueve X/Y y pulsa Aplicar | el HUD salta a esa posición | ☐ |
+| Cambia opacidad y fuente | se aplica en vivo | ☐ |
+| Guardar y reiniciar el HUD | conserva los ajustes (`config/hud.json`) | ☐ |
+| F8 otra vez | la ventana se oculta | ☐ |
+
+### 4.11 Sin el juego (opcional)
 
 ```powershell
 python tools/test_tracker.py
 ```
 
-Debe imprimir 6 líneas `ok` y `TODO OK`. Es el mismo motor, con partidas
-sintéticas: sirve para saber si un fallo es del motor o del entorno.
+Debe imprimir una línea `ok` por prueba y terminar en `TODO OK`. Es el mismo
+motor, con partidas sintéticas: sirve para saber si un fallo es del motor o del
+entorno.
 
 ---
 
@@ -189,6 +239,7 @@ Cada evento sale con el **frame del reloj compartido**, el arranque medido, la
 ventaja, el tipo y el motivo de (no) PUNISH:
 
 ```
+f  6132 P1 start  1      tabla i10~ +1~
 f  6132 P2 final  #12   i20  −15 BLOCK  ~−15  [6089->6101]
 f  6968 P1 impact 1     i10    - HIT           PUNISH  [6960->6968]
 f  5440 P1 impact 1     i10    - HIT    (bloqueo viejo (+71f))  [5431->5440]
@@ -196,6 +247,7 @@ f  5440 P1 impact 1     i10    - HIT    (bloqueo viejo (+71f))  [5431->5440]
 
 | Texto | Significado |
 |---|---|
+| `start … tabla i10~ +1~` | proyección del motor híbrido (dato teórico, aún sin impacto) |
 | `PUNISH` | el golpe conectó dentro de la ventana del último bloqueo |
 | `(tarde (X>Y+1))` | llegaste tarde: el dummy ya se había liberado |
 | `(i10 no cabe en −6)` | el dummy solo quedó a −6: ese golpe no es castigable con un jab |
@@ -222,6 +274,10 @@ comprobación falló.
 | `ModuleNotFoundError: tkinter` | reinstala Python marcando *tcl/tk* |
 | PPSSPP se cierra solo | relanza con el savestate; el HUD se cierra contigo |
 | Números absurdos (`−55`) | no debería pasar ya: mándame la traza `--debug` de ese intercambio |
+| Sale `#12` en vez de `12` | falta la tabla del personaje: `--p1-char <pj>` + scraper o `--learn` |
+| No aparece la proyección `i10~` | ese id no está en `data/compiled/` (o usaste `--no-table`) |
+| `--learn` no pregunta nada | el id ya está mapeado, o el personaje no se pasó con `--p1-char` |
+| El panel no guarda posición | pulsa **Guardar** en el panel F8 (Aplicar no escribe el archivo) |
 
 ---
 
@@ -232,6 +288,15 @@ comprobación falló.
 python tools/hud.py --debug
 python tools/hud.py --p1-char bryan --p2-char bruce
 python tools/hud.py --x 40 --y 40
+python tools/hud.py --settings
+
+# aprender IDs / estados nuevos
+python tools/hud.py --p1-char bryan --learn
+
+# base de datos local
+python tools/scraper.py bryan
+python tools/mapper.py bryan
+python tools/lookup_engine.py bryan 7
 
 # sin ventana (mismo motor)
 python tools/live.py
@@ -242,7 +307,7 @@ python tools/test_tracker.py
 # registro frame a frame (para depurar)
 python tools/diag.py 60          # deja .cache/diag.log
 
-# drill del dummy desde fuera (opcional)
+# drill del dummy desde fuera (opcional, ya sin Node)
 python tools/pad.py --combo select+rtrigger
 ```
 

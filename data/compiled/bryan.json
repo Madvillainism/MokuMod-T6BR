@@ -1,0 +1,68 @@
+{
+  "character": "bryan",
+  "moves": {
+    "7": {
+      "notation": "1",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 8,
+      "on_ch": null,
+      "damage": 8
+    },
+    "10": {
+      "notation": "2",
+      "type": "h",
+      "startup": 10,
+      "on_block": 1,
+      "on_hit": 7,
+      "on_ch": null,
+      "damage": 12
+    },
+    "12": {
+      "notation": "4,3",
+      "type": "h, m",
+      "startup": null,
+      "on_block": -7,
+      "on_hit": 4,
+      "on_ch": null,
+      "damage": "19, 14"
+    },
+    "13": {
+      "notation": "1+2",
+      "type": "m",
+      "startup": 14,
+      "on_block": -10,
+      "on_hit": 6,
+      "on_ch": 5,
+      "damage": 15
+    },
+    "14": {
+      "notation": "3",
+      "type": "m",
+      "startup": 16,
+      "on_block": -4,
+      "on_hit": 7,
+      "on_ch": null,
+      "damage": 16
+    },
+    "15": {
+      "notation": "4",
+      "type": "h",
+      "startup": 12,
+      "on_block": -5,
+      "on_hit": 6,
+      "on_ch": "KND",
+      "damage": "18 (19)"
+    },
+    "20": {
+      "notation": "3+4",
+      "type": "m",
+      "startup": 18,
+      "on_block": -8,
+      "on_hit": "KND",
+      "on_ch": null,
+      "damage": 24
+    }
+  }
+}

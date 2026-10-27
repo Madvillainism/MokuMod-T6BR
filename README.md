@@ -5,8 +5,11 @@ Herramienta de telemetría para el **modo Practice de Tekken 6 (PSP)** emulado e
 juego, el arranque (`startup`) del movimiento que acabas de hacer y la **ventaja
 o desventaja** que produjo al conectar (bloqueo o golpe).
 
-No usa tablas de movimientos: **mide** los tiempos con los contadores internos
-del juego mientras juegas.
+**Mide en vivo** con los contadores internos del juego mientras juegas y,
+además, usa una **base de datos local opcional** (`data/`) para enseñar el dato
+teórico del movimiento en el mismo frame en que empieza, antes de que exista
+ningún impacto. La medición de memoria siempre tiene la última palabra: el
+teórico se marca con `~` y desaparece en cuanto el golpe conecta.
 
 ```
         ┌──────────────────────────────────────┐
@@ -40,6 +43,13 @@ del juego mientras juegas.
 | **Cualquier personaje** | ✅ medición universal; el nombre del golpe es opcional (`#id` por defecto) |
 | **Ventaja adelantada** (`~`) | ✅ muestra la última medición del mismo golpe mientras llega la nueva |
 | Panel de **doble cara** (P1 y P2 a la vez) | ✅ dos filas en el overlay |
+| **Motor híbrido** (tabla local + memoria) | ✅ proyección instantánea al cambiar el Move ID, confirmada por la medición |
+| **Base de datos local** (`data/`) | ✅ `raw/` → `mappings/` → `compiled/` con búsqueda O(1) |
+| **Scraper** de frame data pública | ✅ `tools/scraper.py` (TekkenDocs, 40 personajes) |
+| **Auto-aprendizaje** de Move IDs | ✅ `--learn`: pregunta la notación y recompila en caliente |
+| **Estados de guardia** configurables | ✅ `data/states.json` (agachada incluida vía `--learn`) |
+| **Sin Node.js** | ✅ entrada y bus de telemetría reescritos en Python (`tools/ppsspp_ws.py`) |
+| **Empaquetado** `.exe` | ✅ `build.ps1` + `framemod.spec` (PyInstaller) |
 | Knockdown / stagger | ⚠️ se marca como `HIT`, sin distinguir tipos |
 | Modo Practice únicamente | ✅ por diseño |
 
@@ -58,12 +68,13 @@ metes un golpe antes de que se recupere, su fila cambia a **PUNISH**.
 ## 2. Requisitos
 
 - **PPSSPP 1.19.3** (Windows x64) con el *debugger* activado (WebSocket en el
-  puerto **8099**). El HUD **no** usa el debugger para leer memoria, pero el
-  daemon de teclado sí lo necesita.
+  puerto **8099**). El HUD **no** usa el debugger para leer memoria; solo lo
+  necesita el bus de entrada (`tools/ppsspp_ws.py`), que ya es Python nativo.
 - **Tekken 6 (Europe)** `ULES01376` (también probado el patrón de direcciones con
   `ULES01523`/`ULUS10466`; ver §5).
-- **Python 3.11+** (solo biblioteca estándar: `ctypes`, `tkinter`).
-- **Node.js** (solo para el daemon de entrada `tools/t6padd.mjs`).
+- **Python 3.11+** (solo biblioteca estándar: `ctypes`, `tkinter`, `socket`).
+  **Ya no hace falta Node.js**: el bus de entrada está reescrito en Python
+  (`tools/ppsspp_ws.py`).
 - Un **savestate dentro de Practice** para no navegar menús cada vez.
 
 Arranque recomendado:
@@ -79,15 +90,18 @@ Arranque recomendado:
 ## 3. Uso
 
 ```powershell
-# 1) HUD en pantalla (no necesita el daemon)
+# 1) HUD en pantalla (no necesita el bus de entrada)
 python tools/hud.py
 
 # variantes
 python tools/hud.py --debug                 # además imprime en la consola
 python tools/hud.py --x 60 --y 90           # posición fija
 python tools/hud.py --no-click-through      # permite clics en la ventana
-python tools/hud.py --p1-char bryan --p2-char bruce   # nombres de golpe
+python tools/hud.py --p1-char bryan --p2-char bruce   # tabla + nombres de golpe
 python tools/hud.py --no-predict            # sin el valor adelantado (~)
+python tools/hud.py --settings              # panel de ajustes (también con F8)
+python tools/hud.py --p1-char bryan --learn # aprender IDs nuevos por consola
+python tools/hud.py --no-table              # solo memoria (sin proyección teórica)
 
 # 2) tracker en consola (mismo motor, sin ventana)
 python tools/live.py
@@ -109,6 +123,10 @@ python tools/live.py
   al `~`. Se borra a los 5 s.
 - Colores: verde = ventaja, blanco = neutro, naranja = −1…−9, rojo = −10 o peor,
   azul = golpe limpio en ventaja.
+- Con tabla local, en el frame 0 del movimiento aparece el dato teórico
+  (`i10~ +1~ TABLA`, en gris) y la medición lo sustituye al conectar. El panel
+  de ajustes (**F8** o `--settings`) mueve el HUD, cambia opacidad y fuente, y
+  guarda todo en `config/hud.json`.
 
 📘 **Guía de pruebas paso a paso** (lanzar PPSSPP desde el escritorio y el HUD
 desde VS Code, con la batería de casos y qué significa cada mensaje de la
@@ -125,25 +143,30 @@ python tools/pad.py --combo square+triangle
 
 La medición **no depende del personaje**: el `startup` y la ventaja salen de los
 contadores internos del juego, no de una tabla de movimientos. Lo único que
-cambia entre personajes es el **nombre** del golpe, porque el id de movimiento
-es propio de cada uno.
+cambia entre personajes es el **nombre** del golpe y el dato **teórico** que se
+puede proyectar al instante, porque el id de movimiento es propio de cada uno.
 
-- Por defecto el HUD muestra el id crudo (`#7`, `#21`, `#12`). Sirve igual para
-  Bryan, Bruce, Kazuya o cualquier otro, y **nunca etiqueta mal** un golpe.
-- Si quieres nombres, crea `tools/notation.json` con un bloque por personaje:
+- Por defecto, si no hay tabla, el HUD muestra el id crudo (`#7`, `#21`, `#12`).
+  Sirve igual para Bryan, Bruce, Kazuya o cualquier otro, y **nunca etiqueta mal**
+  un golpe.
+- Con tabla (`data/compiled/<personaje>.json`) el HUD enseña el nombre (`1`,
+  `3+4`, `4,3`) y proyecta `i10~` / `+1~` en el frame 0; al conectar, la
+  medición real sustituye al teórico.
+- `--p1-char bryan` ya viene incluido (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
+- El `raw` de **38 de los 40** personajes ya está descargado en `data/raw/`
+  (`python tools/scraper.py --roster`); `mokujin` y `panda` no tienen tabla
+  propia en la fuente. Falta solo asociar los Move IDs de los que juegas.
+- Para otro personaje:
 
-```json
-{
-  "bruce": { "7": "1", "8": "2", "11": "3" }
-}
+```powershell
+python tools/scraper.py bruce          # frame data pública -> data/raw/
+python tools/hud.py --p2-char bruce --learn   # asocia los IDs mientras juegas
 ```
 
-y arranca con `--p1-char bruce --p2-char bruce`. Los ids se ven en el propio
-HUD (`#7`) o en la `LISTA DE COMANDOS` del modo Practice.
-- `--p1-char bryan` ya viene incluido (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
-- No hay que reiniciar ni elegir personaje antes: el HUD lee la estructura del
-  jugador, no una lista de movimientos. P1 y P2 pueden ser personajes distintos
-  y cada uno lleva su propia tabla.
+`--learn` pregunta la notación por consola cuando aparece un id desconocido,
+la guarda en `data/mappings/bruce_map.json`, recompila y recarga el HUD **sin
+reiniciar PPSSPP**. El flujo completo está en [`data/README.md`](data/README.md).
+- P1 y P2 pueden ser personajes distintos y cada uno lleva su propia tabla.
 
 ---
 
@@ -355,9 +378,40 @@ mientras corre). El drill se maneja desde fuera con:
 python tools/pad.py --combo select+rtrigger
 ```
 
-`rtrigger` es el nombre del botón R en el daemon (`r`/`l` no existen: son
+`rtrigger` es el nombre del botón R en el bus (`r`/`l` no existen: son
 `rtrigger`/`ltrigger`). El mismo comando lo para. El HUD no lo necesita: solo lo
 usan los scripts de prueba.
+
+### 4.9 Motor híbrido: tabla local + memoria
+
+El motor combina dos fuentes y siempre deja mandar a la más fiable:
+
+```
+Move ID cambia (+0x144)          contacto (vida baja / guardia 4178)      unlock (+0x295)
+        │                                    │                                │
+        ▼                                    ▼                                ▼
+  [1] PROYECCIÓN                       [2] STARTUP REAL                 [3] VENTAJA REAL
+  tabla local, O(1)                    medido en memoria                medida en memoria
+  "i10~ +1~" en gris                   "i10" blanco                     "+1" con color
+```
+
+1. **Proyección instantánea** (`--no-table` la desactiva): al cambiar el id, se
+   consulta `data/compiled/<personaje>.json` y se pinta el dato teórico con `~`.
+   Es útil para saber qué movimiento acabas de hacer antes de que conecte.
+2. **Confirmación**: en el frame del impacto, el `startup` medido sustituye al
+   teórico (sin `~`).
+3. **Ventaja**: cuando el segundo jugador se libera, la ventaja medida
+   sustituye también al teórico. Si un golpe nunca se ha medido, el `~` es el
+   valor de la tabla.
+
+La tabla **nunca** puede falsear la medición: si no hay datos, o el personaje no
+tiene tabla, el HUD sigue midiendo igual y enseña el id crudo. Si la tabla y la
+memoria discrepan, gana la memoria (puede ser un frame distinto por *hitstop*,
+que una tabla estática no puede representar).
+
+Los estados de guardia también son datos, no código: `data/states.json` guarda
+los valores que cuentan como bloqueo (`4178` de pie verificado) y `--learn`
+añade los que descubra (guardia agachada) sin reiniciar el HUD.
 
 ---
 
@@ -439,9 +493,15 @@ número contaminado.
 | `tools/live.py` | el mismo motor en consola (sin ventana) |
 | `tools/diag.py` | registro en vivo frame a frame + eventos (depuración del castigo) |
 | `tools/test_tracker.py` | autotest determinista del motor, sin PPSSPP (`python tools/test_tracker.py`) |
-| `tools/notation.json` | nombres de golpe por personaje (opcional) |
+| `tools/notation.json` | nombres de golpe por personaje (compatibilidad; lo nuevo es `data/`) |
 | `tools/replay.py` | reproduce una grabación y muestra los eventos del tracker (depuración offline) |
-| `tools/psp_mem.py` | localiza la RAM de PSP dentro del proceso y lee memoria |
+| `tools/psp_mem.py` | localiza la RAM de PSP dentro del proceso, lee memoria y detecta el disc ID (`--game-id`) |
+| `tools/scraper.py` | **scraper** de frame data pública -> `data/raw/<pj>_raw.json` |
+| `tools/mapper.py` | compila `raw/` + `mappings/` -> `data/compiled/<pj>.json` |
+| `tools/lookup_engine.py` | búsqueda O(1) Move ID -> frame data (la usa el motor híbrido) |
+| `tools/tracker_hybrid.py` | proyección de tabla + confirmación por memoria |
+| `tools/learn.py` | modo `--learn`: aprende IDs y estados de guardia |
+| `tools/game_states.py` | gestión de `data/states.json` (guardia agachada, etc.) |
 | `tools/inputrec.py` | grabador frame-accurate de pulsaciones + memoria (`--bin` para replay) |
 | `tools/advcheck.py` | calcula la ventaja desde `+0x294` / `+0x295` |
 | `tools/validate.py` | batería automática contra la frame data oficial |
@@ -449,9 +509,11 @@ número contaminado.
 | `tools/fieldscan.py` | escáner de campos de la estructura del jugador |
 | `tools/t6scan.py` | snapshots, películas de RAM, búsquedas, series temporales |
 | `tools/timeline.py` | volcado frame a frame de una película |
-| `tools/t6padd.mjs` | daemon de entrada (WebSocket persistente + bus TCP 8098) |
-| `tools/pad.py` | cliente del daemon (`press`, `--combo`, `raw`) |
+| `tools/ppsspp_ws.py` | **bus persistente** WebSocket nativo en Python (puerto 8098) |
+| `tools/pad.py` | cliente del bus (`press`, `--combo`, `raw`) |
+| `tools/t6padd.mjs` | ⚠️ deprecado: lo sustituye `ppsspp_ws.py` (ya no hace falta Node) |
 | `tools/capture-window.ps1` | captura la ventana de PPSSPP |
+| `build.ps1` + `framemod.spec` | empaqueta el HUD en un `.exe` autónomo (PyInstaller) |
 
 Ejemplos:
 
@@ -459,6 +521,10 @@ Ejemplos:
 python tools/live.py --demo --seconds 10
 python tools/replay.py s43a --mids
 python tools/inputrec.py --name jab --bin --press square --at 0.7 --seconds 2
+python tools/scraper.py bryan            # frame data -> data/raw/
+python tools/mapper.py bryan             # raw + mapa -> data/compiled/
+python tools/lookup_engine.py bryan 7    # consulta O(1) de un Move ID
+python tools/psp_mem.py --game-id        # disc ID detectado en RAM
 ```
 
 Las capturas quedan en `.cache/in/`.
@@ -467,28 +533,31 @@ Las capturas quedan en `.cache/in/`.
 
 ## 7. Limitaciones conocidas
 
-1. **`startup` en multi-hit del mismo id**: si el golpe siguiente conserva el
-   id (p. ej. el `14` de Bruce conecta varias veces), no hay segmento nuevo y
-   los golpes 2+ muestran el `startup` acumulado (`i51`, `i52`). El primero es
-   correcto y la ventaja del último también.
-2. **Bloqueo con estados exóticos**: la detección de bloqueo usa el estado
-   `4178` (guardia de pie, el del entrenamiento). Un bloqueo agachado con otro
-   valor de estado no se reconocería; con los golpes de la lista actual no pasa.
+1. **`startup` en multi-hit del mismo id**: resuelto. El contador de animación
+   del atacante **reinicia a 1** en cada golpe de un string; ese reinicio abre un
+   segmento nuevo, así que el segundo golpe de un multi-hit se mide desde su
+   propio frame 1 (antes mostraba el acumulado, `i51`/`i52`).
+2. **Bloqueo con estados exóticos**: la guardia agachada usa un estado distinto
+   de `4178`. Ya no está fijado en el código: `data/states.json` los guarda y
+   `--learn` pregunta cuando ve una reacción de guardia desconocida. Queda
+   **confirmar en vivo** los valores de la guardia agachada de cada personaje.
 3. **±1 frame real**: no es ruido del medidor. Depende del frame activo que
    conecta y del hitstop; aparece también en la frame data oficial como rangos.
 4. **Strings muy rápidos**: si dos golpes ocurren dentro de la misma animación
    del defensor (sin que su estado cambie), se detecta por el reinicio del
-   contador de animación. Funciona en `4,3` y en los strings del dummy; los
-   multi-hit del **mismo id** caen en el punto 1.
+   contador de animación. Funciona en `4,3` y en los strings del dummy.
 5. **KD / stagger**: se detectan como `HIT` (la vida baja) pero no se distingue
    knockdown, roll o stagger.
 6. **`PUNISH` requiere que el dummy haya bloqueado**: si su golpe te conecta
    (estás en hitstun), no hay ventana que enseñar.
-7. **Nombres de golpe**: los ids de movimiento son **por personaje**. Por
-   defecto se muestra el id crudo (`#7`, `#21`), que es correcto para
-   cualquiera; los nombres son opcionales (§3.1).
+7. **Nombres de golpe**: los ids de movimiento son **por personaje**. Sin tabla
+   se muestra el id crudo (`#7`, `#21`), correcto para cualquiera; con
+   `data/compiled/` o `--learn` se muestran los nombres reales.
 8. **Solo Practice**: en versus/arcade las direcciones y el flujo de estados
    pueden cambiar.
+9. **La tabla es opcional y nunca manda sobre la medición**: si el `raw` no
+   tiene ese movimiento (p. ej. un id aprendido antes de scrapear al personaje),
+   el HUD lo enseña como `#id` hasta que exista el dato.
 
 ### 7.1 Defensa + PUNISH (implementado)
 
@@ -529,13 +598,14 @@ desaparece.
 
 ### Próximos pasos
 
-1. Mapear los ids de Bruce para poner nombre a sus golpes (`tools/notation.json`).
-2. Corregir el `startup` de los golpes 2+ de un multi-hit con el mismo id
-   (usar el reinicio del contador del atacante como inicio de segmento).
-3. Emitir un `final` por golpe de string (hoy solo el último lleva valor).
-4. Detectar el personaje desde la memoria para cargar su tabla de nombres sola.
-5. Confirmar en vivo el `PUNISH` con el reloj compartido (validado en
-   simulación: `tools/test_tracker.py`).
+1. **Confirmar en vivo** los estados de guardia agachada con `--learn` y
+   dejarlos en `data/states.json` (el código ya los acepta sin cambios).
+2. Mapear con `--learn` los ids de los personajes que juegas (Bruce, Kazuya…).
+   El `raw` de **38 de los 40** personajes ya está descargado; solo faltan los
+   Move IDs (`mokujin` y `panda` no tienen tabla propia).
+3. Probar el `.exe` empaquetado en un PC sin Python (`build.ps1`).
+4. Detectar el personaje **activo** desde la memoria para cargar su tabla sola
+   (hoy se elige con `--p1-char` / `--p2-char`).
 
 ---
 
@@ -569,6 +639,9 @@ desaparece.
   error de `+0x400000` en las direcciones; corregido en el 04).
 - `tasks/03-lua-overlay.md` — diseño del overlay en LuaJIT (alternativa no usada).
 - `tasks/04-live-map.md` — **mapa de memoria y modelo de medición vigentes**.
+- `tasks/05-roadmap-hibrido.md` — **roadmap híbrido**: scraper, base local,
+  auto-aprendizaje, estados de guardia, portabilidad y empaquetado.
+- `data/README.md` — estructura y flujo de la base de datos local.
 - `GUIA-PRUEBAS.md` — cómo probarlo tú mismo y qué significa cada mensaje.
 
 ---
@@ -583,11 +656,19 @@ cd MokuMod-T6BR
 python tools/hud.py --debug
 ```
 
-No hay dependencias de Python fuera de la biblioteca estándar. Para inyectar
-botones (solo pruebas) hace falta Node.js:
+No hay dependencias de Python fuera de la biblioteca estándar y **ya no hace
+falta Node.js** (el bus de entrada está reescrito en Python). Para inyectar
+botones (solo pruebas):
 
 ```powershell
 python tools/pad.py --daemon
+```
+
+### Empaquetado (sin Python instalado)
+
+```powershell
+.\build.ps1              # -> dist\FRAMEMOD\FRAMEMOD.exe
+.\build.ps1 -OneFile     # -> dist\FRAMEMOD.exe (un solo archivo)
 ```
 
 El repo no incluye `.cache/` (grabaciones, savestates y capturas de trabajo),

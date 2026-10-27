@@ -252,7 +252,8 @@ del defensor ya no se usa.
 - Una lectura en bloque por frame es suficiente y **no** provoca stutter.
 - **No** usar `memory.read` del debugger para el HUD: pausa la CPU y fragmenta.
 - Las conexiones WebSocket cortas y repetidas coinciden con cuelgues/crashes de
-  PPSSPP 1.19.3 → un solo daemon persistente (`tools/t6padd.mjs`).
+  PPSSPP 1.19.3 → un solo bus persistente (`tools/ppsspp_ws.py --serve`,
+  Python nativo; sustituye al antiguo `t6padd.mjs` de Node).
 
 ---
 
@@ -265,8 +266,15 @@ del defensor ya no se usa.
 | `tools/diag.py` | registro en vivo frame a frame + eventos con motivo de PUNISH |
 | `tools/test_tracker.py` | autotest determinista del motor (sin PPSSPP) |
 | `tools/t6scan.py` | snapshots, diffs, búsquedas, películas y series temporales |
-| `tools/t6padd.mjs` | daemon: una sola conexión WS + bus JSON en `127.0.0.1:8098` |
-| `tools/pad.py` | cliente del daemon (botones, peticiones, esperas) |
+| `tools/t6padd.mjs` | ⚠️ deprecado: lo sustituye `tools/ppsspp_ws.py` |
+| `tools/ppsspp_ws.py` | bus persistente: una sola conexión WS + JSON en `127.0.0.1:8098` |
+| `tools/pad.py` | cliente del bus (botones, peticiones, esperas) |
+| `tools/scraper.py` | frame data pública -> `data/raw/` |
+| `tools/mapper.py` | `raw` + `mappings` -> `data/compiled/` |
+| `tools/lookup_engine.py` | búsqueda O(1) Move ID -> frame data |
+| `tools/tracker_hybrid.py` | proyección de tabla + confirmación por memoria |
+| `tools/learn.py` | modo `--learn` (IDs y estados nuevos) |
+| `tools/game_states.py` | `data/states.json` (guardias) |
 | `tools/exp_move.py` | captura una película de RAM mientras pulsa un botón |
 | `tools/capture-window.ps1` | captura la ventana de PPSSPP |
 

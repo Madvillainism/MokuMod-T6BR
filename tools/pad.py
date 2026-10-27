@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Client for the persistent PPSSPP telemetry daemon (tools/t6padd.mjs).
+"""Client for the persistent PPSSPP telemetry bus (tools/ppsspp_ws.py).
 
-The daemon owns the single long-lived WebSocket to PPSSPP; this module talks
-line-delimited JSON to it on 127.0.0.1:8098 and spawns it on demand.
+The bus owns the single long-lived WebSocket to PPSSPP; this module talks
+line-delimited JSON to it on 127.0.0.1:8098 and spawns it on demand.  It is
+pure Python now: **Node.js is no longer needed**.
 
     with Pad() as pad:
         t = pad.press("down", 120)      # hold ~2 s
@@ -12,14 +13,14 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import socket
 import subprocess
+import sys
 import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DAEMON = os.path.join(ROOT, "tools", "t6padd.mjs")
+DAEMON = os.path.join(ROOT, "tools", "ppsspp_ws.py")
 HOST = "127.0.0.1"
 PORT = 8098
 
@@ -40,7 +41,7 @@ def ensure_daemon(start_timeout: float = 8.0, verbose: bool = False) -> bool:
     os.makedirs(logdir, exist_ok=True)
     out = open(os.path.join(logdir, "padd.log"), "a")
     subprocess.Popen(
-        ["node", DAEMON, "--verbose"],
+        [sys.executable, DAEMON, "--serve", "--verbose"],
         cwd=ROOT,
         stdout=out,
         stderr=subprocess.STDOUT,
@@ -51,7 +52,7 @@ def ensure_daemon(start_timeout: float = 8.0, verbose: bool = False) -> bool:
         if _daemon_running():
             return True
         time.sleep(0.1)
-    raise SystemExit("telemetry daemon did not start (see .cache/padd.log)")
+    raise SystemExit("telemetry bus did not start (see .cache/padd.log)")
 
 
 class Pad:
@@ -176,15 +177,15 @@ if __name__ == "__main__":
     ap.add_argument("--combo", help="comma/simultaneous press, e.g. square+triangle")
     ap.add_argument("--json")
     ap.add_argument("--verbose", action="store_true")
-    ap.add_argument("--daemon", action="store_true", help="just start the daemon")
+    ap.add_argument("--daemon", action="store_true", help="just start the telemetry bus")
     a = ap.parse_args()
     ensure_daemon(verbose=a.verbose)
     if a.daemon:
-        print("daemon ready on 127.0.0.1:8098")
+        print("telemetry bus ready on 127.0.0.1:8098 (Python, no Node)")
         raise SystemExit(0)
     with Pad(verbose=a.verbose) as p:
         if not p.wait_connected(3):
-            print("warning: daemon has no PPSSPP connection")
+            print("warning: bus has no PPSSPP connection")
         if a.combo:
             parts = a.combo.split("+")
             p.raw({"event": "input.buttons.send", "buttons": {b: True for b in parts}}, 0.05)
