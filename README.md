@@ -345,9 +345,10 @@ final  4,3  i24  −7   BLOCK      ← ventaja del string
 El `startup` de los golpes siguientes se mide **desde el inicio del string**,
 no desde el cambio de Move ID: en un string el contador de animación no se
 reinicia y el ID puede aparecer varios frames antes del impacto. Antes, el
-drill del dummy publicaba `i4` para el segundo golpe de `1,1,…`; ahora publica
-el frame real dentro del string (`i14`), que es el número comparable con la
-frame data. La ventaja del string sigue siendo la del **último** contacto.
+drill del dummy publicaba `i4` para el segundo golpe de `1,1,…` (tiempo desde el
+cambio de ID); ahora publica el frame real dentro del string —`i14` en el test
+sintético—, que es el número comparable con la frame data. La ventaja del
+string sigue siendo la del **último** contacto.
 
 ### 4.7 Overlay
 
