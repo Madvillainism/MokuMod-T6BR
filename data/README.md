@@ -104,24 +104,45 @@ ejecutarlo a mano.
 ```json
 {
   "block_states": [4178],
+  "crouch_block_states": [12329],
   "idle_states": [6466, 6482, 14633],
-  "attack_states": [2114]
+  "crouch_idle_states": [14633],
+  "attack_states": [2114],
+  "crouch_attack_states": [10273]
 }
 ```
 
-* `block_states`: estados del defensor que cuentan como **bloqueo**. `4178`
-  (blockstun de pie) está verificado en vivo.
-* `idle_states`: neutro.
+* `block_states`: estados del defensor que cuentan como **bloqueo de pie**.
+  `4178` está verificado en vivo.
+* `crouch_block_states`: bloqueo de **golpes bajos**. `12329` está verificado en
+  vivo (el único estado que aparece al bloquear un low).
+* `idle_states`: neutro (incluye el idle agachado `14633`).
+* `crouch_idle_states`: idle agachado. Se usa para saber que un movimiento sale
+  de la agachada (en el frame del Move ID el estado ya es `2114`, genérico).
 * `attack_states`: ataque **y** hitstun (`2114`), por eso nunca se usan solos.
+* `crouch_attack_states`: ataque agachado (`10273`). Sirve para desambiguar los
+  Move ID que se repiten entre posturas y para elegir la guardia esperada.
 
-La **guardia agachada** usa otros valores: con `--learn`, cuando el HUD ve una
-reacción de guardia desconocida (el contador del defensor reinicia dentro de tu
-movimiento y su estado no es idle/ataque/guardia conocida), pregunta si
-añadirla. Al aceptar se escribe aquí y el HUD recarga los estados sin
-reiniciarse. También se puede añadir a mano:
+**Cómo se elige la guardia:** el HUD mira el campo `type` de la tabla del
+movimiento (`l` = low, `m`, `h`, `sm`). Un `l` solo se bloquea agachado, así que
+la guardia esperada es `crouch_block_states`; un `h`/`m`, la de pie; un `sm`,
+las dos. Si el atacante está agachado se aceptan las dos, porque los Move ID se
+repiten entre posturas (el `10` es `2` de pie y `FC.4` agachado). Sin tabla, se
+aceptan las dos y decide el *stun*.
+
+**Confirmación:** un bloqueo solo se publica si el defensor queda **trabado**
+(`free2 = 0`) dentro del estado de guardia. El dummy en *Guard All* levanta la
+guardia al ver arrancar el ataque; si el golpe falla, esa guardia dura un par de
+muestras y se va. Sin esta comprobación se publicaban bloqueos fantasma.
+
+Si un personaje usa variantes distintas, el HUD las aprende con `--learn` cuando
+ve una reacción de guardia desconocida (el contador del defensor reinicia dentro
+de tu movimiento y su estado no es idle/ataque/guardia conocida). También se
+pueden añadir a mano:
 
 ```powershell
-python tools/game_states.py --add-block 4182
+python tools/game_states.py --add-block 4182          # guardia de pie nueva
+python tools/game_states.py --add-crouch-block 12345  # guardia de bajos nueva
 ```
 
 ## Consultar la base

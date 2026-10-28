@@ -118,12 +118,18 @@ class HybridTracker:
 
     def confirm(self, display: FrameDisplayData | None, move_id: int,
                 measured_startup: int | None, measured_adv: int | None,
-                hit_type: str, side: str = "P1") -> FrameDisplayData:
-        """La memoria manda: sustituye lo proyectado por lo medido."""
+                hit_type: str, side: str = "P1",
+                qualitative: bool = True) -> FrameDisplayData:
+        """La memoria manda: sustituye lo proyectado por lo medido.
+
+        `qualitative=False` ignora la etiqueta de la tabla (KND...): se usa
+        cuando la entrada del ID no es de fiar (p. ej. un ID compartido entre
+        posturas), para no publicar el derribo de otro movimiento.
+        """
         name = display.move_name if display else f"#{move_id}"
         startup = f"i{measured_startup}" if measured_startup is not None else "i--"
         label = None
-        if hit_type == "HIT":
+        if hit_type == "HIT" and qualitative:
             label = self.qualitative_label(1 if side == "P1" else 2, move_id)
         if label:
             hit_type = label

@@ -128,7 +128,35 @@ PPSSPP (requiere "Remote Debugger" activado, ya lo esta en este perfil):
 Mapeo PSP: square=1, triangle=2, cross=3, circle=4.
 
 --------------------------------------------------------------
- 6. Problemas y soluciones
+ 6. Golpes bajos (agachado)
+--------------------------------------------------------------
+Los golpes bajos se bloquean con OTRO estado interno del juego (12329), no con
+el bloqueo de pie (4178). El HUD conoce los dos y elige cual esperar segun el
+campo "type" de la tabla del movimiento ("l" = low). Ademas exige que el rival
+quede trabado de verdad (flag free2 = 0): un amago de guardia (el dummy levanta
+la guardia y el golpe pasa de largo) NO se publica como bloqueo.
+
+Como comprobarlo:
+    - Pon el dummy en GUARDIA TOTAL y haz un bajo: debe salir BLOCK con su
+      ventaja (ej. i12 -15).
+    - Pon el dummy en DE PIE y repite: debe salir HIT (ej. i12 -4).
+    Los dos numeros son medidas reales del juego.
+
+Los IDs de movimiento se repiten entre posturas: el mismo ID puede ser un "2"
+de pie y un "FC.4" agachado. Por eso, si haces un ataque agachado y la tabla
+dice que ese ID es un alto, el HUD no proyecta la tabla y muestra el ID crudo
+("#10"): es preferible no ensenar nada a ensenar el nombre y la frame data de
+otro movimiento. La medicion (startup y ventaja) es correcta igual.
+
+Si un personaje usa otra variante de guardia agachada, anadela sin tocar
+codigo:
+
+    python tools/game_states.py --add-crouch-block 12345
+
+(o deja que --learn te la ofrezca cuando la vea).
+
+--------------------------------------------------------------
+ 7. Problemas y soluciones
 --------------------------------------------------------------
 No aparece la ventana:
     - PPSSPP tiene que estar abierto ANTES o durante los primeros 20 s.
@@ -143,6 +171,14 @@ La ventana esta pero no hay numeros:
 Sale "#25" en vez del nombre del golpe:
     - Ese ID no esta mapeado para el personaje. La medicion es correcta igual.
     - Mapealo con --learn o edita data/mappings/<personaje>_map.json.
+    - Si es un ataque AGACHADO, es normal: los IDs se repiten entre posturas y
+      el HUD prefiere el ID crudo antes que el nombre de otro golpe (ver 6).
+
+Un golpe bajo no muestra nada:
+    - Comprueba que conecta: si el dummy lo bloquea debe salir BLOCK.
+    - Si el dummy lo bloquea y aun asi no sale nada, el estado de guardia de tu
+      personaje puede ser otro: lanza con --learn y anadelo, o usa
+      python tools/game_states.py --add-crouch-block <estado>.
 
 El startup sale mas alto de lo normal:
     - En strings (1,1,3...) el segundo golpe se mide desde el inicio del
@@ -162,7 +198,7 @@ El bus dice "bus has no PPSSPP connection":
     - PPSSPP ya no esta abierto (o el debugger esta desactivado).
 
 --------------------------------------------------------------
- 7. Donde esta cada cosa
+ 8. Donde esta cada cosa
 --------------------------------------------------------------
     tools/hud.py            el HUD (motor + ventana)
     tools/live.py           el mismo motor en consola, sin ventana
@@ -171,7 +207,7 @@ El bus dice "bus has no PPSSPP connection":
     tools/replay.py         repetir una grabacion por consola
     data/compiled/*.json    tablas por personaje (ID -> movimiento)
     data/mappings/*.json    ID del juego -> notacion
-    data/states.json        estados que cuentan como bloqueo
+    data/states.json        estados que cuentan como bloqueo (pie y bajos)
     config/hud.json         ajustes del panel (se crea al guardar)
     .cache/live_hud.out     log de eventos si lanzas con --debug
 

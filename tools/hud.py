@@ -130,13 +130,17 @@ def load_notation(name):
         pass
     return table
 
-# Estados de reacción.  4178 (blockstun de pie) está verificado; la guardia
-# agachada y otras variantes se aprenden con --learn y se guardan en
-# data/states.json, sin tocar el código.
+# Estados de reacción.  4178 (blockstun de pie) y 12329 (blockstun agachado,
+# el único que bloquea los golpes bajos) están verificados en vivo; cualquier
+# otra variante se aprende con --learn y se guarda en data/states.json, sin
+# tocar el código.
 _STATES = game_states.load_states()
 IDLE_STATES = _STATES["idle_states"]
 BLOCK_STATES = _STATES["block_states"]
+CROUCH_BLOCK_STATES = _STATES["crouch_block_states"]
+CROUCH_IDLE_STATES = _STATES["crouch_idle_states"]
 ATTACK_STATES = _STATES["attack_states"]
+CROUCH_ATTACK_STATES = _STATES["crouch_attack_states"]
 BLOCK_STATE = 4178                  # alias histórico (blockstun de pie)
 ATTACK_STATE = 2114                 # attack *and* hitstun: never used alone
 
@@ -241,6 +245,7 @@ def mirror(s):
         "mid": s["mid2"],
         "free1": s["free2"],
         "tail1": s["tail2"],
+        "s1": s["s2"],
         "s2": s["s1"],
         "c2": s["c1"],
         "hp2": s["hp1"],
@@ -258,9 +263,15 @@ class Tracker:
     saved recording (see tools/replay.py).
     """
 
-    def __init__(self, notation=None, block_states=None, emit_start=False):
+    def __init__(self, notation=None, block_states=None, emit_start=False,
+                 crouch_block_states=None, move_types=None,
+                 crouch_attack_states=None, crouch_idle_states=None):
         self.notation = {} if notation is None else notation
         self.block_states = set(block_states or BLOCK_STATES)
+        self.crouch_block_states = set(crouch_block_states or CROUCH_BLOCK_STATES)
+        self.crouch_attack_states = set(crouch_attack_states or CROUCH_ATTACK_STATES)
+        self.crouch_idle_states = set(crouch_idle_states or CROUCH_IDLE_STATES)
+        self.move_types = {} if move_types is None else move_types
         self.emit_start = emit_start   # avisa del Move ID en el frame 0
         self.frame = 0
         self.prev_c1 = None
@@ -269,6 +280,7 @@ class Tracker:
         self.prev_hp = None
         self.hp_drop_frame = -999
         self.prev_s2 = None
+        self.last_idle = None     # último estado de reposo (postura del golpe)
         self.prev_c2 = None
         self.unknown_state = None  # reacción de guardia no catalogada (--learn)
 
@@ -287,10 +299,65 @@ class Tracker:
         self.last_c1 = None       # raw counter of the previous sample
 
     # -- helpers --------------------------------------------------------
-    def label_for(self, mid):
+    def is_crouch(self, s):
+        """¿El atacante está en postura agachada?
+
+        En el frame del cambio de Move ID el estado ya es el genérico de
+        ataque (2114), que no distingue postura: se mira el último estado de
+        reposo, que es el idle agachado (14633) si el movimiento sale de la
+        agachada.  Se guarda el último idle (y no el estado anterior) porque el
+        lector repite la misma muestra varias veces por frame.
+        """
+        if s["s1"] in self.crouch_attack_states:
+            return True
+        return (s["s1"] in ATTACK_STATES
+                and self.last_idle in self.crouch_idle_states)
+
+    def label_for(self, mid, crouch=False):
         # Unknown characters keep the raw id: the measurement is universal,
         # only the pretty name depends on the character's move list.
+        #
+        # A crouching move whose table entry is a *high* cannot be right: the
+        # game reuses Move IDs between stances (verified: id 10 is "2" standing
+        # and FC.4 crouching), so the standing entry would name another move
+        # and project its frame data.  The raw id is the honest label there.
+        if crouch and self.hit_level(mid) == "h":
+            return f"#{mid}"
         return self.notation.get(mid) or f"#{mid}"
+
+    def hit_level(self, mid):
+        """Nivel del golpe según la tabla: "l", "m", "h", "sm" o None.
+
+        Un string ("h, h, l") se queda con su último golpe, que es el que se
+        está midiendo cuando llega el contacto.
+        """
+        raw = self.move_types.get(mid)
+        if not raw:
+            return None
+        parts = [p.strip() for p in str(raw).split(",") if p.strip()]
+        return parts[-1] if parts else None
+
+    def guard_states(self, mid, attacker_state):
+        """Estados de guardia que cuentan como bloqueo de este movimiento.
+
+        El `type` de la tabla manda: un bajo ("l") solo se puede bloquear
+        agachado, así que la reacción esperada es la guardia agachada; altos y
+        medios usan la de pie.  Los Move ID se repiten entre posturas
+        (verificado: el 10 es "2" de pie y d+4 agachado), así que si el
+        atacante está en un ataque agachado se aceptan las dos: la tabla no
+        basta para desambiguar y el bloqueo real lo confirma el stun.
+        """
+        level = self.hit_level(mid)
+        both = self.block_states | self.crouch_block_states
+        if level is None:
+            return both
+        if level == "l":
+            return self.crouch_block_states
+        if level == "sm":               # medio especial: se bloquea en las dos
+            return both
+        if attacker_state in self.crouch_attack_states:
+            return both
+        return self.block_states
 
     def pick_segment(self, impact):
         """Segment a contact belongs to.
@@ -325,6 +392,8 @@ class Tracker:
             "p1u": contact.get("p1u"),
             "p2u": contact.get("p2u"),
             "punished": bool(contact.get("punished")),
+            "crouch": bool(contact.get("crouch")),
+            "untrusted": bool(contact.get("untrusted")),
         }
 
     def reset_state(self):
@@ -354,6 +423,8 @@ class Tracker:
         # ---- move id, debounced ---------------------------------------
         raw = s["mid"]
         c1 = s["c1"]
+        if s["s1"] in IDLE_STATES:
+            self.last_idle = s["s1"]
         # The game restarts the animation counter at 1 on the first frame of
         # every animation, so a counter that goes back is a brand-new move.
         c_reset = self.last_c1 is not None and c1 < self.last_c1 and c1 <= 2
@@ -374,10 +445,12 @@ class Tracker:
             mid_changed = True
             if raw:
                 start = self.mid_frame
+                crouch = self.is_crouch(s)
+                label = self.label_for(raw, crouch)
                 if self.seg_start is None:
-                    self.segments = [(start, self.label_for(raw))]
+                    self.segments = [(start, label)]
                 else:
-                    self.segments.append((start, self.label_for(raw)))
+                    self.segments.append((start, label))
                     del self.segments[:-4]
                 self.seg_start = start
                 # Counter-timed only when the animation restarted with the id:
@@ -401,8 +474,12 @@ class Tracker:
                         "startup": None,
                         "adv": None,
                         "kind": "",
-                        "label": self.label_for(raw),
+                        "label": label,
                         "mid": raw,
+                        "crouch": crouch,
+                        "level": self.hit_level(raw),
+                        "untrusted": bool(crouch
+                                          and self.hit_level(raw) == "h"),
                     })
             else:
                 self.seg_start = None
@@ -416,7 +493,8 @@ class Tracker:
                 # back to 0, only the counter restarts.  Without this the
                 # second jab was measured from the first one (i43, i45...).
                 self.seg_start = self.frame
-                self.segments.append((self.frame, self.label_for(self.mid)))
+                self.segments.append(
+                    (self.frame, self.label_for(self.mid, self.is_crouch(s))))
                 del self.segments[:-4]
             self.seg_c0 = c1
 
@@ -424,8 +502,9 @@ class Tracker:
         # Two unambiguous signals:
         #   * a hit lowers the defender's HP on the exact frame the hitbox
         #     connects (the reaction state arrives one frame later);
-        #   * a block switches the defender's state to blockstun (4178) on
-        #     that same frame.
+        #   * a block switches the defender's state to blockstun on that same
+        #     frame: 4178 standing, 12329 crouching (lows are only blocked
+        #     crouching, so that state is the low's block).
         # `state != idle` is NOT usable: 2114 is attack *and* hitstun, and the
         # game writes the state a few samples before the move id, so when the
         # *defender* started his own move it looked like a reaction (that was
@@ -439,18 +518,38 @@ class Tracker:
         d_new = self.prev_s2 is not None and d_state != self.prev_s2
 
         hit = hp_drop
-        blocked = d_state in self.block_states and (d_new or d_anim)
+        guard = self.guard_states(s["mid"], s["s1"])
+        # A real block *locks* the defender (free2 == 0) for the blockstun.
+        # In Guard All the dummy raises its guard as soon as it sees an attack
+        # start, so a whiffed move leaves it in the guard state for a couple of
+        # samples with free2 == 1: that is a guard twitch, not a block, and
+        # publishing it invented advantages and fake punishes.
+        locked = s["free2"] == 0
+        blocked = d_state in guard and (d_new or d_anim)
 
-        # Reacción de guardia no catalogada (p. ej. guardia agachada): el
+        # Reacción de guardia no catalogada (p. ej. una variante nueva): el
         # contador del defensor reinicia dentro de un movimiento activo y el
         # estado no es idle/ataque/guardia conocida.  El HUD con --learn lo
         # ofrece para añadirlo a data/states.json.
         self.unknown_state = None
         if (self.seg_start is not None and d_anim and not hit
                 and d_state not in self.block_states
+                and d_state not in self.crouch_block_states
                 and d_state not in IDLE_STATES
                 and d_state not in ATTACK_STATES):
             self.unknown_state = d_state
+
+        # A block waiting for its lock confirmation (see `locked`).
+        pending = self.contact is not None and self.contact.get("pending")
+        if pending:
+            c = self.contact
+            if hit:
+                self.contact = None          # the hit contradicts the guard
+            elif d_state in guard and locked:
+                c.pop("pending", None)
+                events.append(self.event("impact", c, None))
+            elif d_state not in guard or self.frame - c["impact"] > 20:
+                self.contact = None          # guard twitch: discard it
 
         if self.seg_start is not None and (hit or blocked):
             impact = self.frame
@@ -476,8 +575,15 @@ class Tracker:
                 "hp_min": s["hp2"],
                 "p1u": None,
                 "p2u": None,
+                "crouch": self.is_crouch(s),
+                "untrusted": bool(self.is_crouch(s)
+                                  and self.hit_level(s["mid"]) == "h"),
             }
-            events.append(self.event("impact", self.contact, None))
+            if hit or locked:
+                events.append(self.event("impact", self.contact, None))
+            else:
+                # Provisional: only a locked defender confirms the block.
+                self.contact["pending"] = True
 
         # ---- unlocks ---------------------------------------------------
         c = self.contact
@@ -488,7 +594,9 @@ class Tracker:
                 c["p1u"] = self.frame
             if c["p2u"] is None and s["tail2"] == 1 and self.prev_tail2 == 0:
                 c["p2u"] = self.frame
-            if c["p1u"] is not None and c["p2u"] is not None:
+            if c.get("pending"):
+                pass                     # todavía sin confirmar: no hay final
+            elif c["p1u"] is not None and c["p2u"] is not None:
                 if c["hp_pre"] is not None and c["hp_min"] < c["hp_pre"]:
                     c["kind"] = "HIT"
                 events.append(self.event("final", c, c["p2u"] - c["p1u"]))
@@ -520,7 +628,9 @@ class TrackerThread(threading.Thread):
 
     def __init__(self, out, debug=False, p1_notation=None, p2_notation=None,
                  predict=True, block_states=None, hybrid=None, learner=None,
-                 data_dir=None):
+                 data_dir=None, p1_types=None, p2_types=None,
+                 crouch_block_states=None, crouch_attack_states=None,
+                 crouch_idle_states=None):
         super().__init__(daemon=True)
         self.out = out
         self.debug = debug
@@ -528,8 +638,19 @@ class TrackerThread(threading.Thread):
         self.data_dir = data_dir
         self.rd = Reader()
         self.block_states = set(block_states or BLOCK_STATES)
-        self.t1 = Tracker(p1_notation, self.block_states, emit_start=True)
-        self.t2 = Tracker(p2_notation, self.block_states, emit_start=True)
+        self.crouch_block_states = set(crouch_block_states or CROUCH_BLOCK_STATES)
+        self.crouch_attack_states = set(crouch_attack_states or CROUCH_ATTACK_STATES)
+        self.crouch_idle_states = set(crouch_idle_states or CROUCH_IDLE_STATES)
+        self.t1 = Tracker(p1_notation, self.block_states, emit_start=True,
+                          crouch_block_states=self.crouch_block_states,
+                          move_types=p1_types,
+                          crouch_attack_states=self.crouch_attack_states,
+                          crouch_idle_states=self.crouch_idle_states)
+        self.t2 = Tracker(p2_notation, self.block_states, emit_start=True,
+                          crouch_block_states=self.crouch_block_states,
+                          move_types=p2_types,
+                          crouch_attack_states=self.crouch_attack_states,
+                          crouch_idle_states=self.crouch_idle_states)
         self.hybrid = hybrid        # proyección de tabla + confirmación
         self.learner = learner      # modo --learn (IDs y estados nuevos)
         self.display = {"P1": None, "P2": None}
@@ -542,9 +663,16 @@ class TrackerThread(threading.Thread):
 
     def reload_states(self):
         """Recarga data/states.json (--learn añadió una guardia nueva)."""
-        self.block_states = game_states.load_states(self.data_dir)["block_states"]
+        states = game_states.load_states(self.data_dir)
+        self.block_states = states["block_states"]
+        self.crouch_block_states = states["crouch_block_states"]
+        self.crouch_attack_states = states["crouch_attack_states"]
+        self.crouch_idle_states = states["crouch_idle_states"]
         for tracker in (self.t1, self.t2):
             tracker.block_states = self.block_states
+            tracker.crouch_block_states = self.crouch_block_states
+            tracker.crouch_attack_states = self.crouch_attack_states
+            tracker.crouch_idle_states = self.crouch_idle_states
 
     # -- punish ---------------------------------------------------------
     def punish_reason(self, ev):
@@ -653,7 +781,10 @@ class TrackerThread(threading.Thread):
         side = ev["side"]
         player = 1 if side == "P1" else 2
         display = None
-        if self.hybrid is not None:
+        # Un ataque agachado con una entrada de tabla de tipo "h" es un mapeo
+        # imposible (los IDs se repiten entre posturas: el 10 es "2" de pie y
+        # FC.4 agachado).  Mejor no proyectar nada que proyectar otro golpe.
+        if self.hybrid is not None and not ev.get("untrusted"):
             display = self.hybrid.project(player, ev["mid"])
         self.display[side] = display
         ev["display"] = display
@@ -669,7 +800,8 @@ class TrackerThread(threading.Thread):
         adv = ev["adv"] if ev["phase"] == "final" else None
         kind = "PUNISH" if ev.get("punish") else ev["kind"]
         display = self.hybrid.confirm(
-            self.display.get(side), ev["mid"], ev["startup"], adv, kind, side
+            self.display.get(side), ev["mid"], ev["startup"], adv, kind, side,
+            qualitative=not ev.get("untrusted"),
         )
         if display.hit_type not in ("HIT", "BLOCK", "PUNISH"):
             # Golpe que derriba (KND): la tabla pone la etiqueta y el número
@@ -924,6 +1056,29 @@ def notation_for(char, lookup):
     return table
 
 
+def move_types_for(char, lookup):
+    """Move ID -> nivel de golpe (`type` de la tabla: "l", "m", "h", "sm").
+
+    Es el dato que dice si un movimiento es bajo ("l"): un bajo solo se puede
+    bloquear agachado, así que la guardia que debe aparecer en el defensor es
+    la agachada y no la de pie.  Los strings vienen como "h, h, l": manda el
+    último golpe, que es el que se está midiendo.
+    """
+    types = {}
+    if not char or lookup is None or not lookup.has_character(char):
+        return types
+    key = char.strip().lower()
+    # `data/raw/` está indexado por notación, no por Move ID (mismo criterio
+    # que `notation_for`): usarlo como ID daría tipos falsos.
+    if lookup.sources.get(key, "").endswith("_raw.json"):
+        return types
+    for move_id, info in lookup.tables[key].items():
+        level = info.get("type")
+        if level and str(move_id).isdigit():
+            types[int(move_id)] = str(level).strip().lower()
+    return types
+
+
 def load_recording(name, cache_dir=None):
     """Carga una grabación de `.cache/in/<nombre>.bin` (+ `.json`) como muestras.
 
@@ -1069,6 +1224,11 @@ def main():
         p2_notation=notation_for(a.p2_char, lookup),
         predict=not a.no_predict,
         block_states=states["block_states"],
+        crouch_block_states=states["crouch_block_states"],
+        crouch_attack_states=states["crouch_attack_states"],
+        crouch_idle_states=states["crouch_idle_states"],
+        p1_types=move_types_for(a.p1_char, lookup),
+        p2_types=move_types_for(a.p2_char, lookup),
         hybrid=hybrid,
         learner=learner,
         data_dir=data_dir,

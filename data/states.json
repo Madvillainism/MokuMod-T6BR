@@ -2,12 +2,21 @@
   "block_states": [
     4178
   ],
+  "crouch_block_states": [
+    12329
+  ],
   "idle_states": [
     6466,
     6482,
     14633
   ],
+  "crouch_idle_states": [
+    14633
+  ],
   "attack_states": [
     2114
+  ],
+  "crouch_attack_states": [
+    10273
   ]
 }

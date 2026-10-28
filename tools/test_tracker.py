@@ -24,7 +24,11 @@ from hud import TrackerThread, load_notation  # noqa: E402
 IDLE = 6466
 IDLE2 = 6482
 BLOCK = 4178
+CROUCH_BLOCK = 12329
 ATTACK = 2114
+CROUCH_ATTACK = 10273
+CROUCH_IDLE = 14633
+LOW_ID = 10            # d+4 de Bryan (verificado en vivo)
 
 
 class NullQueue:
@@ -33,11 +37,13 @@ class NullQueue:
 
 
 class Sim:
-    def __init__(self, p1_notation=None, p2_notation=None, predict=True):
+    def __init__(self, p1_notation=None, p2_notation=None, predict=True,
+                 p1_types=None, p2_types=None):
         self.events = []
         self.tt = TrackerThread(
             NullQueue(), debug=False, p1_notation=p1_notation,
             p2_notation=p2_notation, predict=predict,
+            p1_types=p1_types, p2_types=p2_types,
         )
         self.tt.emit = self.events.append
         self.n = 0
@@ -92,9 +98,9 @@ def block_and_punish(jab_start=26, drift=False, cache=None, predict=True):
     for k in range(2, 10):
         sim.frame(mid2=12, s2=ATTACK, c2=k)
     # frame 19: bloqueo (P1 entra en blockstun)
-    sim.frame(mid2=12, s2=ATTACK, c2=10, s1=BLOCK, c1=1)
+    sim.frame(mid2=12, s2=ATTACK, c2=10, s1=BLOCK, c1=1, free1=0)
     for k in range(2, 7):
-        sim.frame(mid2=12, s2=ATTACK, c2=10 + k, s1=BLOCK, c1=k)
+        sim.frame(mid2=12, s2=ATTACK, c2=10 + k, s1=BLOCK, c1=k, free1=0)
     # frame 25: P1 libre (pulso de la cola)
     sim.frame(mid2=12, s2=ATTACK, c2=16, s1=IDLE2, c1=7, tail1=1)
     # jab de P1
@@ -185,9 +191,9 @@ def test_one_block_one_punish():
     sim.frame(mid2=12, s2=ATTACK, c2=1)
     for k in range(2, 10):
         sim.frame(mid2=12, s2=ATTACK, c2=k)
-    sim.frame(mid2=12, s2=ATTACK, c2=10, s1=BLOCK, c1=1)
+    sim.frame(mid2=12, s2=ATTACK, c2=10, s1=BLOCK, c1=1, free1=0)
     for k in range(2, 7):
-        sim.frame(mid2=12, s2=ATTACK, c2=10 + k, s1=BLOCK, c1=k)
+        sim.frame(mid2=12, s2=ATTACK, c2=10 + k, s1=BLOCK, c1=k, free1=0)
     sim.frame(mid2=12, s2=ATTACK, c2=16, s1=IDLE2, c1=7, tail1=1)
     for n in range(26, 60):
         kw = {}
@@ -209,6 +215,159 @@ def test_one_block_one_punish():
     assert hits[0].get("punish") is True, hits[0].get("punish_why")
     assert hits[1].get("punish") is False, "el segundo golpe del combo se marcó como castigo"
     print("ok  un bloqueo = un castigo (el 2.º golpe del combo no se marca)")
+
+
+def low_attack(reaction=CROUCH_BLOCK, lock=True, hit=False,
+               p1_state=CROUCH_ATTACK, types=None, startup=12):
+    """P1 lanza un golpe bajo (id 10) y el dummy reacciona.
+
+    Reproduce las dos trazas medidas en vivo:
+      * bloqueo agachado: el defensor entra en 12329 con free2 = 1 (la
+        guardia se levanta al ver arrancar el ataque) y al frame siguiente
+        queda trabado (free2 = 0) hasta que se suelta;
+      * amago de guardia: el ataque pasa de largo, 12329 dura un par de
+        muestras con free2 = 1 y vuelve a idle.  Eso NO es un bloqueo.
+    """
+    sim = Sim(p1_types=types)
+    for _ in range(5):
+        sim.frame()
+
+    def step(**kw):
+        kw.setdefault("mid", LOW_ID)
+        kw.setdefault("s1", p1_state)
+        sim.frame(**kw)
+
+    for c in range(1, (startup if hit else startup - 1) + 1):
+        kw = {"c1": c}
+        if hit and c == startup:
+            kw["hp2"] = 168
+        step(**kw)
+
+    if hit:
+        for k in range(1, 12):
+            step(c1=startup + k, s2=ATTACK, c2=k, free2=0)
+        step(c1=startup + 12, s2=ATTACK, c2=12, free2=1, tail2=1)
+        base = startup + 13
+    else:
+        # la reacción llega en el mismo frame del impacto (así se mide i12)
+        step(c1=startup, s2=reaction, c2=1, free2=1)
+        stun = 18 if lock else 1
+        for k in range(2, 2 + stun):
+            step(c1=startup + k - 1, s2=reaction, c2=k,
+                 free2=0 if lock else 1)
+        if lock:
+            step(c1=startup + stun, s2=reaction, c2=1 + stun,
+                 free2=1, tail2=1)          # el defensor queda libre
+            base = startup + stun + 1
+        else:
+            step(c1=startup + 1, s2=IDLE, c2=1, free2=1)
+            base = startup + 2
+
+    # recuperación de P1: suelta la cola 11 frames después del defensor
+    for i in range(40):
+        kw = {"c1": base + i, "s2": IDLE, "c2": 1 + i}
+        if i == 10:
+            kw["tail1"] = 1
+        step(**kw)
+    return sim
+
+
+def test_low_block_crouch():
+    """Un bajo bloqueado agachado (12329) se publica como BLOCK.
+
+    Fallo real: 12329 (blockstun agachado) no estaba en data/states.json, así
+    que el HUD no emitía *nada* al bloquear un golpe bajo.  El `type` "l" de la
+    tabla es lo que dice que la guardia esperada es la agachada.
+    """
+    sim = low_attack(types={LOW_ID: "l"})
+    ev = sim.find("P1", "impact")
+    assert ev is not None, "el bloqueo agachado no se midió"
+    assert ev["kind"] == "BLOCK", ev["kind"]
+    assert ev["startup"] == 12, ev["startup"]
+    fin = sim.find("P1", "final")
+    assert fin is not None, "bloqueo sin ventaja"
+    print(f"ok  bajo bloqueado agachado: i{ev['startup']} {fin['adv']:+d} BLOCK")
+
+
+def test_guard_twitch_is_not_block():
+    """Amago de guardia (free2 nunca se traba) no es un bloqueo.
+
+    En Guard All el muñeco levanta la guardia al ver arrancar el ataque: si el
+    golpe pasa de largo, el estado de guardia aparece un par de muestras sin
+    stun.  Publicarlo inventaba ventajas y castigos falsos.
+    """
+    sim = low_attack(lock=False, types={LOW_ID: "l"})
+    assert sim.all("P1", "impact") == [], sim.all("P1", "impact")
+    print("ok  amago de guardia agachada descartado (sin stun no hay bloqueo)")
+
+
+def test_low_hit():
+    """El bajo que conecta se mide como HIT (la vida del dummy baja)."""
+    sim = low_attack(hit=True, types={LOW_ID: "l"})
+    ev = sim.find("P1", "impact")
+    assert ev is not None and ev["kind"] == "HIT", ev and ev["kind"]
+    print("ok  bajo que conecta: HIT medido por la vida del dummy")
+
+
+def test_type_selects_guard():
+    """El `type` de la tabla decide qué guardia cuenta como bloqueo.
+
+    Un bajo ("l") solo se bloquea agachado; un alto/medio, de pie.  Los Move
+    ID se repiten entre posturas (10 = "2" de pie y d+4 agachado), así que si
+    el atacante está agachado se aceptan las dos.
+    """
+    sim = low_attack(reaction=BLOCK, types={LOW_ID: "l"})
+    assert sim.all("P1", "impact") == [], "un bajo aceptó la guardia de pie"
+
+    sim = low_attack(reaction=CROUCH_BLOCK, p1_state=ATTACK,
+                     types={LOW_ID: "h"})
+    assert sim.all("P1", "impact") == [], "un alto aceptó la guardia agachada"
+
+    sim = low_attack(reaction=CROUCH_BLOCK, p1_state=CROUCH_ATTACK,
+                     types={LOW_ID: "h"})
+    ev = sim.find("P1", "impact")
+    assert ev is not None and ev["kind"] == "BLOCK", (
+        "id repetido entre posturas: se perdió el bloqueo agachado"
+    )
+    print("ok  el tipo decide la guardia (id ambiguo resuelto por postura)")
+
+
+def test_crouch_label_not_standing_move():
+    """Un ID compartido entre posturas no se etiqueta con el movimiento de pie.
+
+    Verificado en vivo: el ID 10 es "2" de pie y FC.4 agachado.  Con el mapa de
+    Bryan (10 -> "2", tipo "h") el ataque agachado no puede llamarse "2": el HUD
+    enseña el ID crudo en vez de un nombre (y una frame data) de otro golpe.
+    """
+    sim = Sim(p1_notation={LOW_ID: "2"}, p1_types={LOW_ID: "h"})
+    for _ in range(5):
+        sim.frame(s1=CROUCH_IDLE)
+    sim.frame(mid=LOW_ID, s1=ATTACK, c1=1)          # el ID llega con 2114
+    for c in range(2, 6):
+        sim.frame(mid=LOW_ID, s1=CROUCH_ATTACK, c1=c)
+    starts = sim.all("P1", "start")
+    assert starts, "sin evento de inicio"
+    assert starts[0]["label"] == f"#{LOW_ID}", starts[0]["label"]
+    assert starts[0]["untrusted"] is True
+
+    # de pie el mismo ID sí es "2"
+    sim = Sim(p1_notation={LOW_ID: "2"}, p1_types={LOW_ID: "h"})
+    for _ in range(5):
+        sim.frame()
+    sim.frame(mid=LOW_ID, s1=ATTACK, c1=1)
+    for c in range(2, 6):
+        sim.frame(mid=LOW_ID, s1=ATTACK, c1=c)
+    assert sim.all("P1", "start")[0]["label"] == "2"
+
+    # un mapeo agachado correcto (tipo "l") sí se etiqueta
+    sim = Sim(p1_notation={LOW_ID: "FC.4"}, p1_types={LOW_ID: "l"})
+    for _ in range(5):
+        sim.frame(s1=CROUCH_IDLE)
+    sim.frame(mid=LOW_ID, s1=ATTACK, c1=1)
+    for c in range(2, 6):
+        sim.frame(mid=LOW_ID, s1=CROUCH_ATTACK, c1=c)
+    assert sim.all("P1", "start")[0]["label"] == "FC.4"
+    print("ok  ID compartido: agachado sin etiqueta falsa, de pie intacto")
 
 
 def test_startup_from_counter():
@@ -238,7 +397,7 @@ def test_startup_from_counter():
     sim.frame(mid=7, s1=ATTACK, c1=1)       # primer frame real del jab
     for k in range(2, 10):
         sim.frame(mid=7, s1=ATTACK, c1=k)
-    sim.frame(mid=7, s1=ATTACK, c1=10, s2=BLOCK, c2=1)
+    sim.frame(mid=7, s1=ATTACK, c1=10, s2=BLOCK, c2=1, free2=0)
     ev = sim.find("P1", "impact", "#7")
     assert ev is not None and ev["startup"] == 10, f"i{ev and ev['startup']} (id antes del reset)"
     print("ok  arranque i10 aunque se pierdan frames o el id llegue antes del reset")
@@ -435,6 +594,11 @@ if __name__ == "__main__":
     test_late_hit_is_not_punish()
     test_prediction()
     test_one_block_one_punish()
+    test_low_block_crouch()
+    test_guard_twitch_is_not_block()
+    test_low_hit()
+    test_type_selects_guard()
+    test_crouch_label_not_standing_move()
     test_startup_from_counter()
     test_same_id_pressed_again()
     test_string_startup_from_animation()

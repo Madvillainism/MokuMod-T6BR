@@ -19,3 +19,6 @@ config/hud.json
 build/
 dist/
 *.spec.bak
+
+# README interno de desarrollo (solo local; la version publica es README.md)
+README.dev.md

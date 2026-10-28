@@ -1,15 +1,16 @@
 # 🥋 FRAMEMOD — Tracker de frame data en vivo para Tekken 6 (PSP)
 
 Herramienta de telemetría para el **modo Practice de Tekken 6 (PSP)** emulado en
-**PPSSPP**. Lee la memoria del juego y muestra **en pantalla**, sobre el propio
-juego, el arranque (`startup`) del movimiento que acabas de hacer y la **ventaja
-o desventaja** que produjo al conectar (bloqueo o golpe).
+**PPSSPP**. Lee la memoria del juego y muestra **en pantalla, sobre el propio
+juego**, el arranque (`startup`) del movimiento que acabas de hacer y la
+**ventaja o desventaja** que produjo al conectar (bloqueo o golpe).
 
-**Mide en vivo** con los contadores internos del juego mientras juegas y,
-además, usa una **base de datos local opcional** (`data/`) para enseñar el dato
-teórico del movimiento en el mismo frame en que empieza, antes de que exista
-ningún impacto. La medición de memoria siempre tiene la última palabra: el
-teórico se marca con `~` y desaparece en cuanto el golpe conecta.
+No es un overlay de datos copiados de una web: **mide en vivo** con los
+contadores internos del juego mientras juegas. Opcionalmente puede usar una
+**base de datos local** (`data/`) para enseñar el dato teórico del movimiento en
+el mismo frame en que empieza, antes de que exista ningún impacto. La medición de
+memoria siempre tiene la última palabra: el teórico se marca con `~` y desaparece
+en cuanto el golpe conecta.
 
 ```
         ┌──────────────────────────────────────┐
@@ -24,698 +25,406 @@ teórico se marca con `~` y desaparece en cuanto el golpe conecta.
 
 ---
 
-## 1. Estado actual
+## Índice
 
-| Pieza | Estado |
+1. [Qué mide](#1-qué-mide)
+2. [Requisitos](#2-requisitos)
+3. [Instalación](#3-instalación)
+4. [Primeros pasos](#4-primeros-pasos)
+5. [Preparar el modo Practice](#5-preparar-el-modo-practice)
+6. [Uso del HUD](#6-uso-del-hud)
+7. [Cómo leer el panel](#7-cómo-leer-el-panel)
+8. [Golpes bajos y agachado](#8-golpes-bajos-y-agachado)
+9. [Tabla de frame data opcional](#9-tabla-de-frame-data-opcional)
+10. [Cómo funciona por dentro](#10-cómo-funciona-por-dentro)
+11. [Herramientas](#11-herramientas)
+12. [Problemas frecuentes](#12-problemas-frecuentes)
+13. [Limitaciones](#13-limitaciones)
+14. [Avisos](#14-avisos)
+15. [Empaquetado (sin Python instalado)](#15-empaquetado-sin-python-instalado)
+
+---
+
+## 1. Qué mide
+
+| Dato | Qué significa |
 |---|---|
-| Lectura de memoria a ~1 kHz | ✅ funciona |
-| Detección de contacto (golpe / bloqueo) | ✅ funciona |
-| `startup` (i10, i16, i12…) | ✅ **exacto**: el impacto se mide en el frame en que baja la vida |
-| Ventaja | ✅ **exacta** (±1 real del juego, no del medidor) |
-| Strings (`4,3`, `1,2`…) | ✅ un resultado por golpe |
-| Overlay transparente sobre PPSSPP | ✅ canvas con sombra de texto y barra de color por jugador |
-| Cierre del overlay al cerrar PPSSPP | ✅ el panel se apaga solo |
-| Copia única del overlay | ✅ mutex con nombre: nunca se apilan dos paneles |
-| Caso **HIT** (dummy en *Stand*) | ✅ validado (`1` → `i10`, `+8`, `HIT`) |
-| Medición de la **defensa** (P2 ataca, P1 bloquea) | ✅ funciona (tracker espejo) |
-| Aviso **PUNISH** | ✅ solo cuando el golpe **conecta** dentro de la ventana (jab `i10` sobre `−12`) |
-| **Reloj único** para los dos jugadores | ✅ un solo contador de frame de juego (antes cada tracker llevaba el suyo y **derivaban**) |
-| **Cualquier personaje** | ✅ medición universal; el nombre del golpe es opcional (`#id` por defecto) |
-| **Ventaja adelantada** (`~`) | ✅ muestra la última medición del mismo golpe mientras llega la nueva |
-| Panel de **doble cara** (P1 y P2 a la vez) | ✅ dos filas en el overlay |
-| **Motor híbrido** (tabla local + memoria) | ✅ proyección instantánea al cambiar el Move ID, confirmada por la medición |
-| **Base de datos local** (`data/`) | ✅ `raw/` → `mappings/` → `compiled/` con búsqueda O(1) |
-| **Scraper** de frame data pública | ✅ `tools/scraper.py` (TekkenDocs, 40 personajes) |
-| **Auto-aprendizaje** de Move IDs | ✅ `--learn`: pregunta la notación y recompila en caliente |
-| **Estados de guardia** configurables | ✅ `data/states.json` (agachada incluida vía `--learn`) |
-| **Sin Node.js** | ✅ entrada y bus de telemetría reescritos en Python (`tools/ppsspp_ws.py`) |
-| **Empaquetado** `.exe` | ✅ `build.ps1` + `framemod.spec` (PyInstaller) |
-| Knockdown / stagger | ⚠️ se marca como `HIT`, sin distinguir tipos |
-| Modo Practice únicamente | ✅ por diseño |
+| **startup** (`i10`, `i16`, `i12`…) | Frames desde que empieza el movimiento hasta que conecta. Se mide con el contador de animación del atacante y se ancla en el frame exacto del impacto. |
+| **ventaja** (`+1`, `−12`…) | Frames que ganas o pierdes cuando termina el contacto. Positivo = puedes actuar antes que el rival. |
+| **HIT** | El golpe bajó la vida del rival. |
+| **BLOCK** | El rival lo bloqueó (incluye los golpes bajos, que se bloquean agachado). |
+| **PUNISH** | Tu golpe conectó **dentro** de la ventana de castigo que dejó el golpe bloqueado del rival. |
+| **`~`** | Valor adelantado: la última vez que mediste ese mismo golpe. Se sustituye por el número exacto en cuanto se libera el rival. |
+| **Strings** (`4,3`, `1,2`…) | Un resultado por golpe, medido desde el inicio del string. |
 
-> El modelo antiguo (fin del estado de animación) está **descartado**: la
-> animación sigue reproduciéndose ~12 frames después de que el personaje ya
-> puede actuar. La medición actual usa los flags internos de accionabilidad
-> (`+0x294` / `+0x295`), que sí marcan el frame exacto.
-
-**Panel de doble cara (implementado):** el overlay muestra siempre **dos filas**,
-una por personaje. Cuando P2 ataca y tú bloqueas, el dummy enseña su `startup` y
-su desventaja (`P2 −12`) y tu fila enseña el lado contrario (`P1 +12`). Si le
-metes un golpe antes de que se recupere, su fila cambia a **PUNISH**.
+Se mide **siempre en las dos direcciones**: cuando tú atacas y el dummy bloquea o
+recibe, y cuando el dummy ataca y tú bloqueas (el tracker espejo). Por eso el
+panel tiene dos filas.
 
 ---
 
 ## 2. Requisitos
 
-- **PPSSPP 1.19.3** (Windows x64) con el *debugger* activado (WebSocket en el
-  puerto **8099**). El HUD **no** usa el debugger para leer memoria; solo lo
-  necesita el bus de entrada (`tools/ppsspp_ws.py`), que ya es Python nativo.
-- **Tekken 6 (Europe)** `ULES01376` (también probado el patrón de direcciones con
-  `ULES01523`/`ULUS10466`; ver §5).
-- **Python 3.11+** (solo biblioteca estándar: `ctypes`, `tkinter`, `socket`).
-  **Ya no hace falta Node.js**: el bus de entrada está reescrito en Python
-  (`tools/ppsspp_ws.py`).
-- Un **savestate dentro de Practice** para no navegar menús cada vez.
+- **Windows 10/11 de 64 bits.**
+- **PPSSPP** (probado con 1.19.x, versión **64 bits**).
+- **Tekken 6 (PSP)** en un **ISO/CSO que hayas obtenido legalmente** (tu propia
+  copia del UMD). Esta herramienta no incluye ni distribuye el juego.
+- **Python 3.11 o superior** — solo biblioteca estándar: no hay que instalar
+  paquetes (`pip` no se usa para nada).
+- Una partida en **modo Practice**. El HUD está pensado para práctica offline.
 
-Arranque recomendado:
+> El HUD **no** necesita el *debugger* de PPSSPP: lee la memoria del proceso con
+> la API de Windows. El debugger solo hace falta si quieres usar el bus de
+> entrada (`tools/pad.py`), que es opcional y sirve para automatizar pulsaciones
+> en pruebas.
+
+La lectura de memoria localiza la base de la RAM de PSP dentro del proceso del
+emulador, así que no depende de una ruta ni de una versión concreta del ISO. Se
+ha validado con las ediciones europea y americana; con otras regiones debería
+funcionar igual siempre que la estructura de los jugadores sea la misma.
+
+---
+
+## 3. Instalación
 
 ```powershell
-& "C:\Program Files\PPSSPP\PPSSPPWindows64.exe" `
-  --state="C:\Users\Carlos\Documents\PPSSPP\PSP\PPSSPP_STATE\ULES01376_1.00_0.ppst" `
-  "C:\Users\Carlos\Documents\PPSSPP\PSP\GAME\Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru).iso"
+git clone https://github.com/Madvillainism/MokuMod-T6BR.git
+cd MokuMod-T6BR
+python tools/hud.py
+```
+
+Si no usas git: descarga el ZIP del repositorio y descomprímelo en cualquier
+carpeta.
+
+Comprobación rápida sin PPSSPP (reproduce una grabación de ejemplo sobre el
+overlay real):
+
+```powershell
+python tools/hud.py --replay val_1_0
 ```
 
 ---
 
-## 3. Uso
+## 4. Primeros pasos
+
+1. Arranca **PPSSPP** y carga **Tekken 6**.
+2. Entra en **Practice** (menú principal → *Practice*).
+3. Deja a PPSSPP en primer plano y ejecuta:
+
+   ```powershell
+   python tools/hud.py --debug
+   ```
+
+   `--debug` imprime además cada evento en la consola; sirve para comprobar que
+   todo va bien la primera vez.
+4. Haz un golpe. En el frame en que empieza verás `P1 <golpe>` y, al conectar, el
+   `startup` y la ventaja.
+5. El panel se coloca solo sobre PPSSPP y **se cierra solo** cuando cierras el
+   emulador.
+
+Solo puede haber **una copia** del HUD: la segunda sale con
+`overlay already running`.
+
+---
+
+## 5. Preparar el modo Practice
+
+El menú de práctica se abre con **START**. Mientras está abierto el juego se
+congela (los contadores dejan de avanzar): no es un cuelgue.
+
+| Opción | Para qué sirve |
+|---|---|
+| `MUÑECO 1` | Comportamiento del dummy. Se cambia con ←/→. |
+| `MUÑECO 1 = GUARDIA TOTAL` | Bloquea todo: ideal para medir **ventaja en bloqueo** y castigos. |
+| `MUÑECO 1 = DE PIE` | Quieto y **sin guardia**: ideal para medir **golpes limpios (HIT)**. |
+| `MUÑECO 1 = EN GUARDIA DE PIE` | De pie, bloqueando solo lo que se bloquea de pie. |
+| `MUÑECO 2` | Qué hace el dummy al caer (`LEVANTARSE`). |
+| `RESTAB. POSICIÓN` | Reinicia la posición tras cada intercambio. Déjalo en `NO` si quieres medir a distintas distancias. |
+| `CONTRAATAQUES` | Es el *counter hit* de la práctica; **no** hace que el dummy ataque. |
+| `ELEGIR MODO` | `ENTRENAMIENTO DEFENSIVO` hace que la CPU ataque usando la `LISTA DE COMANDOS` (para probar tu defensa y el aviso PUNISH). |
+
+**Regla de oro:** para medir un golpe en concreto pon el dummy en `DE PIE` (para
+ver el HIT) y en `GUARDIA TOTAL` (para ver el BLOCK). Si lo dejas siempre en
+guardia, todo lo que hagas saldrá como bloqueo y nunca verás el daño.
+
+---
+
+## 6. Uso del HUD
 
 ```powershell
-# 1) HUD en pantalla (no necesita el bus de entrada)
+# HUD en pantalla
 python tools/hud.py
 
 # variantes
-python tools/hud.py --debug                 # además imprime en la consola
-python tools/hud.py --x 60 --y 90           # posición fija
-python tools/hud.py --no-click-through      # permite clics en la ventana
-python tools/hud.py --p1-char bryan --p2-char bruce   # tabla + nombres de golpe
-python tools/hud.py --no-predict            # sin el valor adelantado (~)
-python tools/hud.py --settings              # panel de ajustes (también con F8)
-python tools/hud.py --p1-char bryan --learn # aprender IDs nuevos por consola
-python tools/hud.py --no-table              # solo memoria (sin proyección teórica)
+python tools/hud.py --debug                            # además imprime en consola
+python tools/hud.py --x 60 --y 90                      # posición fija
+python tools/hud.py --no-click-through                 # permite clics en la ventana
+python tools/hud.py --p1-char bryan --p2-char bruce    # tabla + nombres de golpe
+python tools/hud.py --no-predict                       # sin el valor adelantado (~)
+python tools/hud.py --settings                         # panel de ajustes (también con F8)
+python tools/hud.py --no-table                         # solo memoria (sin proyección teórica)
+python tools/hud.py --p1-char bryan --learn            # aprender IDs nuevos por consola
 
-# 2) demo del overlay sin PPSSPP (reproduce una grabación de .cache/in/)
+# demo del overlay sin PPSSPP (reproduce una grabación de .cache/in/)
 python tools/hud.py --replay val_1_0        # velocidad real, se cierra solo
 python tools/hud.py --replay s43a --speed 2 # doble de velocidad
 
-# 3) tracker en consola (mismo motor, sin ventana)
+# tracker en consola (mismo motor, sin ventana)
 python tools/live.py
 ```
 
-- La ventana se coloca sola sobre PPSSPP (sigue al emulador si lo mueves).
+- La ventana se coloca sola sobre PPSSPP y **sigue al emulador** si lo mueves.
 - Es **transparente** (solo se ve el texto) y **click-through**: no roba clics.
-- Cada número lleva una **sombra negra** de 2 px para que se lea igual sobre el
-  suelo del escenario que sobre el cielo, y cada fila tiene una **barra de
-  color** (P1 verde azulado, P2 naranja).
-- **Se cierra sola** cuando cierras PPSSPP (el watchdog ve que el proceso ya no
-  está y destruye la ventana). No deja un panel huérfano congelado; si PPSSPP
-  no aparece en 20 s, también se cierra.
-- Solo puede correr **una copia**: la segunda sale con `overlay already running`
-  (mutex de Windows). Antes, dos instancias apiladas duplicaban el texto.
-- En el impacto aparece el `startup` y, si ese golpe ya se midió antes, su
-  ventaja adelantada con `~` (p. ej. `~−12`). La ventaja **exacta** se conoce
-  cuando se libera el segundo jugador (~0,5 s después, 30 frames) y sustituye
-  al `~`. Se borra a los 5 s.
-- Colores: verde = ventaja, blanco = neutro, naranja = −1…−9, rojo = −10 o peor,
-  azul = golpe limpio en ventaja.
-- Con tabla local, en el frame 0 del movimiento aparece el dato teórico
-  (`i10~ +1~ TABLA`, en gris) y la medición lo sustituye al conectar. El panel
-  de ajustes (**F8** o `--settings`) mueve el HUD, cambia opacidad y fuente, y
-  guarda todo en `config/hud.json`.
-- Si el golpe **derriba** (`KND` en la tabla) no se publica un número: la fila
-  muestra `i18 — KND`. El `+58` que salía antes era el tiempo de levantarse, no
-  una ventaja real.
-- `--replay NOMBRE` reproduce una grabación de `.cache/in/` sobre el overlay
-  real (sin PPSSPP): sirve para comprobar la ventana, los colores y la
-  proyección de la tabla sin arrancar el emulador.
+- Cada número lleva una **sombra negra** para que se lea sobre cualquier fondo, y
+  cada fila tiene una **barra de color** (P1 verde azulado, P2 naranja).
+- **Panel de ajustes (F8)**: mueve el HUD, cambia opacidad y tamaño de fuente.
+  Todo se guarda en `config/hud.json`.
+- `--p1-char` / `--p2-char` se **recuerdan** entre ejecuciones: basta indicarlos
+  una vez. `--p1-char none` los borra.
 
-📘 **Guía de pruebas paso a paso** (lanzar PPSSPP desde el escritorio y el HUD
-desde VS Code, con la batería de casos y qué significa cada mensaje de la
-consola): [`GUIA-PRUEBAS.md`](GUIA-PRUEBAS.md).
+---
 
-📄 **Guía de uso en texto plano** (para abrir en el Bloc de notas):
-[`GUIA-USO.txt`](GUIA-USO.txt).
+## 7. Cómo leer el panel
 
-Para inyectar botones desde fuera (pruebas, no necesario para jugar):
-
-```powershell
-python tools/pad.py square --frames 2
-python tools/pad.py --combo square+triangle
+```
+P1   3+4   i18   −8   BLOCK     ← golpe de P1, bloqueado
+P2   1     i10   +8   PUNISH    ← el dummy te castigó
 ```
 
-### 3.1 Cualquier personaje
+- **Colores**: verde = ventaja, blanco = neutro, naranja = `−1`…`−9`,
+  rojo = `−10` o peor, azul = golpe limpio en ventaja.
+- **`PUNISH`** aparece solo si tu golpe **conecta** dentro de la ventana que dejó
+  el bloqueo previo del rival. Si llegas tarde, el número se publica igual pero
+  sin la etiqueta.
+- **`KND` / etiquetas cualitativas**: si el golpe derriba, no se publica un
+  número (el tiempo de levantarse no es una ventaja real): verás `i18 — KND`.
+- El panel **borra** el resultado a los 5 segundos sin actividad.
+
+---
+
+## 8. Golpes bajos y agachado
+
+Los golpes bajos son un caso aparte y el HUD los trata como tales:
+
+- **El bloqueo de un bajo no es el mismo estado que el de pie.** El juego usa un
+  estado interno distinto (`12329`) cuando un golpe bajo queda bloqueado, frente
+  al `4178` del bloqueo normal. Ambos están en `data/states.json`.
+- **El `type` de la tabla decide qué guardia se espera.** Cada movimiento del
+  catálogo trae su nivel de golpe (`l` = low, `m` = medio, `h` = alto,
+  `sm` = medio especial). Un `l` solo se puede bloquear agachado, así que el HUD
+  espera la guardia de bajos; un alto o un medio, la de pie. Los `sm` valen en
+  las dos.
+- **Un bloqueo exige que el rival quede trabado.** El dummy en *Guard All*
+  levanta la guardia en cuanto ve arrancar el ataque; si el golpe pasa de largo,
+  la guardia dura un par de muestras y se va. Eso **no** es un bloqueo: el HUD
+  espera a que el defensor quede bloqueado de verdad (flag `free2 = 0` durante el
+  *blockstun*) y, si nunca ocurre, descarta el evento. Sin esto se publicaban
+  bloqueos fantasma, ventajas inventadas y castigos falsos.
+- **Los IDs de movimiento se repiten entre posturas.** Verificado en vivo: el
+  mismo ID puede ser un `2` de pie y un `FC.4` agachado. Por eso, si el atacante
+  está agachado y la tabla dice que ese ID es un alto, el HUD **no** proyecta la
+  tabla y muestra el ID crudo (`#10`): es preferible no enseñar nada a enseñar el
+  nombre y la frame data de otro movimiento.
+- **Cómo comprobarlo tú mismo**: pon el dummy en `GUARDIA TOTAL`, haz un bajo y
+  deberías ver `BLOCK` con su ventaja (por ejemplo `i12 −15`); cámbialo a
+  `DE PIE`, repite y verás `HIT` (por ejemplo `i12 −4`). Los dos números son
+  medidas reales del juego.
+
+---
+
+## 9. Tabla de frame data opcional
 
 La medición **no depende del personaje**: el `startup` y la ventaja salen de los
-contadores internos del juego, no de una tabla de movimientos. Lo único que
-cambia entre personajes es el **nombre** del golpe y el dato **teórico** que se
-puede proyectar al instante, porque el id de movimiento es propio de cada uno.
+contadores internos del juego. Lo único que cambia entre personajes es el
+**nombre** del golpe y el dato **teórico** que se puede proyectar al instante,
+porque el ID de movimiento es propio de cada personaje.
 
-- Por defecto, si no hay tabla, el HUD muestra el id crudo (`#7`, `#21`, `#12`).
-  Sirve igual para Bryan, Bruce, Kazuya o cualquier otro, y **nunca etiqueta mal**
-  un golpe.
-- `--p1-char` / `--p2-char` son **opcionales** y se recuerdan en
-  `config/hud.json`: basta con indicarlos una vez (`--p1-char bryan`) y las
-  siguientes veces `python tools/hud.py` ya carga la tabla. `--p1-char none` lo
-  borra. Sin personaje se sigue midiendo igual, solo se pierde el nombre y la
-  proyección teórica.
-- Con tabla (`data/compiled/<personaje>.json`) el HUD enseña el nombre (`1`,
-  `3+4`, `4,3`) y proyecta `i10~` / `+1~` en el frame 0; al conectar, la
-  medición real sustituye al teórico.
-- La tabla de **Bryan** ya viene compilada (`1`, `2`, `3`, `4`, `1+2`, `3+4`, `4,3`).
-- El `raw` de **38 de los 40** personajes ya está descargado en `data/raw/`
-  (`python tools/scraper.py --roster`); `mokujin` y `panda` no tienen tabla
-  propia en la fuente. Falta solo asociar los Move IDs de los que juegas.
-- Para otro personaje:
+- Sin tabla, el HUD muestra el ID crudo (`#7`, `#21`, `#12`). Sirve igual para
+  cualquier personaje y **nunca etiqueta mal** un golpe.
+- Con tabla (`data/compiled/<personaje>.json`) enseña el nombre (`1`, `3+4`,
+  `4,3`) y proyecta `i10~` / `+1~` en el frame 0; al conectar, la medición real
+  sustituye al teórico.
+- **Bryan** ya viene compilado como ejemplo.
+- El `raw` de la mayoría del roster ya está descargado en `data/raw/`
+  (`python tools/scraper.py --roster`). Falta asociar los IDs de los personajes
+  que juegas.
 
 ```powershell
-python tools/scraper.py bruce          # frame data pública -> data/raw/
+python tools/scraper.py bruce                 # frame data pública -> data/raw/
 python tools/hud.py --p2-char bruce --learn   # asocia los IDs mientras juegas
 ```
 
-`--learn` pregunta la notación por consola cuando aparece un id desconocido,
-la guarda en `data/mappings/bruce_map.json`, recompila y recarga el HUD **sin
+`--learn` pregunta la notación por consola cuando aparece un ID desconocido, la
+guarda en `data/mappings/<personaje>_map.json`, recompila y recarga el HUD **sin
 reiniciar PPSSPP**. El flujo completo está en [`data/README.md`](data/README.md).
-- P1 y P2 pueden ser personajes distintos y cada uno lleva su propia tabla.
-
----
-
-## 4. Cómo funciona
-
-### 4.1 Lectura de memoria
-
-El HUD abre el proceso de PPSSPP y lee **directamente** con
-`ReadProcessMemory` una ventana de 4.7 KB que cubre las dos estructuras de
-jugador. Una lectura cuesta ~0.04 ms, así que se muestrea a ~1 kHz (unas 16
-muestras por frame de juego).
-
-> ⚠️ Nunca usar `memory.read` del debugger para el HUD: pausa la CPU y produce
-> tirones. El debugger solo se usa para enviar botones.
-
-PPSSPP mapea la RAM de PSP en su propio espacio de direcciones; `tools/psp_mem.py`
-localiza esa vista recorriendo las regiones del proceso (la dirección cambia en
-cada arranque del emulador).
-
-### 4.2 Mapa de memoria verificado
-
-| Campo | Dirección / offset | Tipo | Uso |
-|---|---|---|---|
-| Base jugador 1 | `0x08C078C0` | — | — |
-| Base jugador 2 | `0x08C081F0` | — | — |
-| Separación entre jugadores | `0x930` | — | — |
-| Vida | `+0x002` | `u16` | distinguir `HIT` de `BLOCK` |
-| **Contador de animación** | `+0x07C` | `u32` | +1 por frame, **reinicia a 1** al cambiar de animación |
-| **Estado** | `+0x0AC` | `u16` | detectar el contacto (ver abajo) |
-| **ID de movimiento** | `+0x144` | `u32` | `1`, `2`, `3`, `4`, `1+2`… |
-| **Libre / bloqueado** | `+0x294` | `u8` | `1` = puede actuar, `0` = bloqueado |
-| **Cola de recuperación** | `+0x295` | `u8` | sube a `1` **exactamente** en el frame accionable |
-| Pad emulado | `0x08BFE4AC` | `u16` | pulsaciones reales (bits PSP) |
-
-Valores de estado observados:
-
-| Valor | Significado |
-|---|---|
-| `6482` | de pie (P1) |
-| `6466` | de pie (dummy / P2) |
-| `14633` | agachado |
-| `2114` | ataque de pie **y** hitstun |
-| `10273` | ataque agachado |
-| `4178` | **guardia / blockstun** |
-
-> `+0x294` **parpadea a 0** en reposo un frame suelto, así que nunca se usa solo
-> como señal de impacto. El impacto se detecta con el estado del defensor.
-
-**`HIT` vs `BLOCK`:** las dos señales son inequívocas y llegan en el frame exacto
-del impacto:
-
-- **`HIT`** = la vida del defensor baja en ese frame (`hp2` menor que en la
-  muestra anterior). El estado de reacción llega un frame después; la vida, no.
-- **`BLOCK`** = el defensor entra en guardia (`4178`) en ese frame, o reinicia su
-  contador de animación estando ya en `4178` (segundo golpe de un string).
-
-> ⚠️ `estado ≠ idle` **no** sirve como señal: `2114` es ataque *y* hitstun, y el
-> juego escribe el estado unas muestras antes que el ID de movimiento. Cuando el
-> defensor empezaba su propio ataque, su cambio de estado se colaba como
-> "reacción" y corrompía los impactos (el número raro que salía tras cada jab).
-
-### 4.3 Medición
-
-```
-inicio del segmento        ← el ID de movimiento cambia a un valor nuevo
-        │
-        │  startup = contacto − inicio + 1
-        ▼
-     CONTACTO              ← la vida de P2 baja (golpe) o P2 entra en guardia
-        │                     `4178` (bloqueo): frame exacto del impacto
-        │
-        ├── P1 desbloqueo  = +0x295 de P1 sube a 1
-        └── P2 desbloqueo  = +0x295 de P2 sube a 1
-
-                ventaja = P2 desbloqueo − P1 desbloqueo
-```
-
-**El impacto se mide en el frame de la vida, no en el de la reacción.** Al
-recibir un golpe, el juego aplica el estado de reacción del defensor **un frame
-después** de que el hitbox conecta. Medir el contacto en ese estado sumaba un
-frame a todos los golpes: el jab de Bryan salía `i11` en vez de `i10`. La traza
-frame a frame de un jab aislado lo deja claro:
-
-| frame | `+0x7C` P1 | `+0x144` P1 | vida P2 | estado P2 |
-|---|---|---|---|---|
-| 3 | 1 | 7 | 180 | 6466 |
-| 12 | 10 | 7 | **172** | 6466 |
-| 13 | 11 | 7 | 172 | **2114** |
-
-El movimiento empieza en el frame 3, la vida baja en el 12 y P2 reacciona en el
-13 → `12 − 3 + 1 = 10` (`i10`). Por eso el motor detecta el golpe **en la bajada
-de vida**, no en la reacción. En bloqueo no hay bajada de vida: la guardia
-(`4178`) y el reinicio del contador del defensor aparecen en el **mismo frame**
-(verificado frame a frame), así que ahí el impacto es el frame del bloqueo.
-
-Por qué este modelo y no el anterior:
-
-1. **El fin de la animación no es la ventana de acciones.** El personaje puede
-   moverse ~12 frames antes de que termine su animación. Por eso el modelo viejo
-   (`fin de estado`) daba ventajas demasiado positivas.
-2. **`+0x295` marca el frame exacto** en que el jugador puede actuar, en los dos
-   jugadores. La ventaja no depende de cuándo se detecte el impacto: es una
-   diferencia entre dos sucesos absolutos.
-3. **El impacto se detecta con el defensor**, no con el atacante: su vida baja
-   (golpe) o entra en guardia (`4178`, bloqueo) — o reinicia su contador de
-   animación estando ya en `4178` (segundo golpe de un string). `+0x294` cae 2
-   frames más tarde y a veces parpadea solo.
-4. **El ID de movimiento parpadea** (p. ej. `15 → 16 → 12` en el mismo frame),
-   así que se filtra: un ID solo se acepta si sobrevive a un segundo muestreo o
-   cruza al frame siguiente. El segmento empieza en el frame en que apareció.
-
-### 4.4 Reloj compartido (por qué fallaba el PUNISH)
-
-Los dos trackers (P1 atacando y P2 atacando) **comparten un único reloj de
-frame de juego**, que avanza cuando cambia el contador `+0x7C` de P1.
-
-Antes cada tracker contaba con el contador de **su** jugador. Ese contador
-**repite valores** de vez en cuando (no siempre incrementa: en un arranque de
-animación salta de `10` a `12`, y a veces se queda igual una muestra), así que
-los dos relojes se iban separando: en una sesión real de 10 minutos la deriva
-medida era de **~17 frames**. La comprobación de castigo comparaba un frame de
-P1 con un frame de P2, es decir, dos relojes distintos: la ventana salía
-desplazada y el `PUNISH` no aparecía aunque el golpe entrara.
-
-Con un solo reloj, `u_p` (frame en que P1 queda libre), `u_d` (frame en que el
-dummy queda libre) y el impacto del castigo son directamente comparables:
-
-```
-ventana de castigo = |u_p − u_d|          (la desventaja del dummy)
-PUNISH  ⇔  el golpe conecta (vida)  y  start ≥ u_p  y  impact ≤ u_d + 1
-           y  startup ≤ ventana + 1
-```
-
-### 4.5 Ventaja adelantada (`~`)
-
-La ventaja **exacta** solo se puede conocer cuando se libera el segundo
-jugador, y eso ocurre ~30 frames (0,5 s) después del impacto: es el tiempo de
-recuperación que se está midiendo. Para que el panel no parezca congelado, en
-el impacto se muestra la **última ventaja medida para ese mismo golpe y tipo**
-(`~−12`), y en cuanto llega la medición real se sustituye por el número exacto.
-La caché es por `(id de movimiento, HIT/BLOCK)` y caduca a los 2 minutos.
-`--no-predict` la desactiva.
-
-### 4.6 Strings
-
-En un string el juego cambia el ID **en el mismo frame del primer contacto**
-(Bryan `4,3`: el ID pasa a `12` justo cuando el `4` conecta). El motor:
-
-- asigna el golpe a la **fase anterior** si el cambio de ID ocurre en el contacto;
-- emite **un resultado por contacto**, con la etiqueta del segmento (`4` y luego
-  `4,3`);
-- si un contacto nuevo interrumpe la medición anterior, la anterior se muestra
-  sin ventaja (`—`) y la nueva pasa a ser la buena.
-
-Ejemplo real de `4,3` medido en vivo:
-
-```
-impact 4    i12   —   BLOCK      ← primer golpe
-impact 4,3  i24   —   BLOCK      ← segundo golpe (string)
-final  4,3  i24  −7   BLOCK      ← ventaja del string
-```
-
-El `startup` de los golpes siguientes se mide **desde el inicio del string**,
-no desde el cambio de Move ID: en un string el contador de animación no se
-reinicia y el ID puede aparecer varios frames antes del impacto. Antes, el
-drill del dummy publicaba `i4` para el segundo golpe de `1,1,…` (tiempo desde el
-cambio de ID); ahora publica el frame real dentro del string —`i14` en el test
-sintético—, que es el número comparable con la frame data. La ventaja del
-string sigue siendo la del **último** contacto.
-
-### 4.7 Overlay
-
-`tkinter` con `-transparentcolor` + `WS_EX_LAYERED | WS_EX_TRANSPARENT`
-(click-through). Se reposiciona cada 700 ms sobre el área cliente de PPSSPP.
-
-- **DPI awareness** (`shcore.SetProcessDpiAwareness(2)`, con
-  `SetProcessDPIAware` de reserva) al arrancar. Sin esto, en un monitor al
-  150 % Tk coloca la ventana en píxeles físicos pero `GetWindowRect` /
-  `ClientToScreen` devuelven coordenadas virtuales: el panel cae **1,5×
-  desplazado** y acaba encima del cronómetro.
-- **Un solo `Canvas`** de 620×96 con las dos filas (P1/P2) y columnas fijas
-  (lado, movimiento, startup, valor, tipo). Dibujar en canvas (en vez de
-  `Label` empaquetados) permite posicionar cada texto al píxel y añadir la
-  sombra.
-- **Sombra de texto:** cada texto se pinta dos veces, una copia negra a
-  `+2 px`. Es lo que hace legible el panel sobre cualquier fondo sin perder la
-  transparencia (no hay caja opaca).
-- **Barra de color por jugador** a la izquierda de cada fila (P1 verde
-  azulado, P2 naranja) y números grandes en `Consolas` 28.
-- **Mutex con nombre** (`Local\T6FramesHud`): si ya hay un overlay, el segundo
-  proceso sale sin dibujar. Sin esto, dos HUD apilados duplicaban el texto
-  (`ii1101`).
-- **Watchdog:** si la lectura falla y el PID que se estaba leyendo ya no
-  existe, el hilo marca `dead` y la ventana se destruye sola.
-- Se coloca en `x = gx + (gw − w)/2`, `y = gy + 0.19 · gh`: centrado y por
-  debajo de las barras de vida y del cronómetro.
-
-### 4.8 Menú de Practice (ES) — configuración del dummy
-
-El menú de práctica se abre con **START** y **el juego se congela mientras está
-abierto** (el contador `+0x7C` deja de avanzar; no es un cuelgue).
-
-| Opción | Qué hace |
-|---|---|
-| `ELEGIR MODO` | modo de práctica. `ENTRENAMIENTO DEFENSIVO` hace que la CPU ataque usando la `LISTA DE COMANDOS`. |
-| `LISTA DE COMANDOS` | movimientos que usará la CPU en entrenamiento defensivo (hay que elegir ≥2). |
-| `MUÑECO 1` | comportamiento del dummy: `GUARDIA TOTAL` (bloquea todo), `DE PIE` (quieto, **sin guardia**, ideal para probar golpes limpios), `EN GUARDIA DE PIE` (de pie pero bloqueando). Se cambia con ←/→. |
-| `MUÑECO 2` | qué hace al caer (`LEVANTARSE`). |
-| `CONTRAATAQUES` | `NO`/`SÍ` es el **counter hit** de la práctica; **no** hace que el dummy ataque. |
-| `RESTAB. POSICIÓN` | reinicia la posición tras cada intercambio. |
-| `ANÁLISIS DE GOLPES` | muestra daño/ventana en pantalla. |
-
-En entrenamiento defensivo aparece el aviso **`SELECT + R EMPEZAR`** (y `PARAR`
-mientras corre). El drill se maneja desde fuera con:
-
-```powershell
-python tools/pad.py --combo select+rtrigger
-```
-
-`rtrigger` es el nombre del botón R en el bus (`r`/`l` no existen: son
-`rtrigger`/`ltrigger`). El mismo comando lo para. El HUD no lo necesita: solo lo
-usan los scripts de prueba.
-
-### 4.9 Motor híbrido: tabla local + memoria
-
-El motor combina dos fuentes y siempre deja mandar a la más fiable:
-
-```
-Move ID cambia (+0x144)          contacto (vida baja / guardia 4178)      unlock (+0x295)
-        │                                    │                                │
-        ▼                                    ▼                                ▼
-  [1] PROYECCIÓN                       [2] STARTUP REAL                 [3] VENTAJA REAL
-  tabla local, O(1)                    medido en memoria                medida en memoria
-  "i10~ +1~" en gris                   "i10" blanco                     "+1" con color
-```
-
-1. **Proyección instantánea** (`--no-table` la desactiva): al cambiar el id, se
-   consulta `data/compiled/<personaje>.json` y se pinta el dato teórico con `~`.
-   Es útil para saber qué movimiento acabas de hacer antes de que conecte.
-2. **Confirmación**: en el frame del impacto, el `startup` medido sustituye al
-   teórico (sin `~`).
-3. **Ventaja**: cuando el segundo jugador se libera, la ventaja medida
-   sustituye también al teórico. Si un golpe nunca se ha medido, el `~` es el
-   valor de la tabla.
 
 La tabla **nunca** puede falsear la medición: si no hay datos, o el personaje no
-tiene tabla, el HUD sigue midiendo igual y enseña el id crudo. Si la tabla y la
-memoria discrepan, gana la memoria (puede ser un frame distinto por *hitstop*,
-que una tabla estática no puede representar).
-
-Los estados de guardia también son datos, no código: `data/states.json` guarda
-los valores que cuentan como bloqueo (`4178` de pie verificado) y `--learn`
-añade los que descubra (guardia agachada) sin reiniciar el HUD.
+tiene tabla, el HUD sigue midiendo igual. Si la tabla y la memoria discrepan,
+gana la memoria.
 
 ---
 
-## 5. Validación
+## 10. Cómo funciona por dentro
 
-Contra frame data oficial de **Bryan** (Tekken 6, <https://tekkendocs.com/t6/bryan>),
-con el dummy en *Guard All* (la última fila, en *Stand*):
+### 10.1 Lectura de memoria
 
-| Movimiento | `startup` medido | oficial | Ventaja medida | oficial |
-|---|---|---|---|---|
-| `1` | **i10** | i10 | **+1** | +1 |
-| `2` | **i10** | i10 | **+1** / 0 | +1 |
-| `3` | **i16** | i16 | **−4** | −4 |
-| `4` | **i12** | i12 | **−5** / −6 | −5 |
-| `1+2` | **i14** | i14 | **−10** | −10 |
-| `3+4` | **i18** | i18 | **−8** / −7 | −8 |
-| `4,3` (2.º golpe) | **i24** | — | **−7** | −7 |
-| `1` **en golpe** (dummy *Stand*) | **i10** | i10 | **+8** | +8 |
+El HUD abre el proceso de PPSSPP y lee **directamente** con `ReadProcessMemory`
+una ventana de ~4,7 KB que cubre las dos estructuras de jugador. Una lectura
+cuesta ~0,04 ms, así que se muestrea a ~1 kHz (unas 16 muestras por frame de
+juego). Nunca usa el `memory.read` del debugger: eso pausa la CPU del emulador.
 
-El caso **HIT** se validó con el dummy en `DE PIE` (sin guardia): la ventaja
-cambia de `+1` (bloqueo) a `+8` (golpe) y la etiqueta pasa a `HIT`.
+De cada jugador se leen: vida, contador de animación, estado, Move ID y los dos
+flags de accionabilidad (`free` / `tail`).
 
-El `startup` coincide en **todos** los casos tras medir el impacto en el frame
-en que baja la vida. La ventaja conserva el ±1 que aparece **en el juego**:
-según qué frame activo conecta y el *hitstop*, la ventaja real cambia un frame.
-Una tabla estática no puede mostrar eso; el HUD sí.
+### 10.2 Contacto: golpe o bloqueo
 
-### 5.1 Defensa y PUNISH (dummy P2 atacando)
+Dos señales inequívocas, nada de "el estado no es idle" (el estado `2114` es a la
+vez ataque y *hitstun*):
 
-Medido en **entrenamiento defensivo** con la lista de comandos del dummy
-(Bruce: sus ids son propios y aún no tienen nombre):
+| Señal | Cuándo |
+|---|---|
+| **HIT** | La vida del defensor baja en ese mismo frame. |
+| **BLOCK** | El defensor entra en un estado de guardia conocido (`4178` de pie, `12329` de bajos) y queda trabado. |
 
-| lista del dummy (ids) | `startup` | ventaja en bloqueo |
-|---|---|---|
-| `7` | i11 | — |
-| `10` | i19 | — |
-| `12` | i20 | **−15** |
-| `15, 18` | i15 / i16 | **−11** |
-| `7, 8, 7, 14` | i11 / i13 / i20 / i20 | **−12** |
-| `11, 21` | i14 / i24 | **−6** |
+### 10.3 Startup
 
-El savestate actual usa la lista simple **`7`, `10`, `12`** (dos golpes sueltos
-y un remate de `−15`, el mejor caso para probar castigos).
+El contador de animación del atacante **reinicia a 1** en cada movimiento, así que
+su valor es el número de frame del movimiento. El `startup` es el valor del
+contador en el frame del impacto. Esto no depende de que el lector pierda
+muestras ni de que el Move ID aparezca uno o dos frames antes del reinicio del
+contador (los dos casos desplazaban el número ±1).
 
-El **PUNISH** se validó soltando *back* y pulsando `1` en cuanto P1 queda libre:
-el HUD muestra `P1 1 i10 +8 HIT PUNISH` sobre el ender de `−15`. El mismo `1`
-sobre un string de `−6` sale sin `PUNISH`, porque el dummy ya puede actuar
-cuando el jab llega: la etiqueta no es "he acertado", es "he acertado **antes**
-de que se recupere".
+### 10.4 Ventaja
 
-**Regla exacta:** el `PUNISH` se marca **solo cuando el golpe conecta** (la vida
-del dummy baja). Se toman del **último bloqueo real** los dos frames de
-liberación (`u_p` = P1 libre, `u_d` = dummy libre) y se exige:
+```
+ventaja = frame de liberación del defensor − frame de liberación del atacante
+```
 
-1. el golpe de P1 **empezó** después de que P1 estuviera libre (`start ≥ u_p`);
-2. **conectó** mientras el dummy seguía bloqueado (`impact ≤ u_d + 1`, con un
-   frame de tolerancia);
-3. su `startup` **cabe** en la desventaja del dummy (`startup ≤ |u_p − u_d| + 1`).
+Los flags `+0x294` / `+0x295` marcan el frame exacto en que cada jugador puede
+volver a actuar. El "fin de la animación" **no** sirve: la animación sigue ~12
+frames después de que el personaje ya puede actuar.
 
-Así, un `1` (i10) sobre un `−12` sale `PUNISH`; el mismo `1` sobre un `−6` no,
-porque el dummy ya puede actuar cuando el jab llega: la etiqueta no es "he
-acertado", es "he acertado **antes** de que se recupere". Un golpe que entra
-tarde (fuera de la ventana) tampoco se marca. No hay aviso previo de la
-ventana: la ventaja solo se conoce en el frame en que el dummy se libera, así
-que cualquier "PUNISH" adelantado aparecía sobre la fila del bloqueo (la del
-dummy), que es exactamente lo que no debe pasar.
+### 10.5 Reloj compartido
 
-Cuando el castigo entra, la recuperación del dummy queda cortada, así que su
-propia ventaja ya no es el valor del bloqueo: esa fila muestra `—` en vez de un
-número contaminado.
+Los dos jugadores se miden con **un solo reloj de frame de juego**. Antes cada
+tracker contaba con el contador de su propio jugador y los relojes derivaban
+(~17 frames en unos minutos), con lo que el aviso PUNISH —que compara un frame de
+P1 con uno de P2— dejaba de tener sentido.
 
-### 5.2 Validación en vivo (27/10/2026)
+### 10.6 Motor híbrido (tabla + memoria)
 
-PPSSPP 1.19.3 con el estado `ULES01376_1.00_0.ppst` (Práctica) y los golpes
-inyectados por el bus (`tools/pad.py`, el usuario no podía pulsar botones):
+```
+Move ID cambia            contacto (vida baja / guardia)         unlock
+     │                              │                              │
+     ▼                              ▼                              ▼
+[1] PROYECCIÓN                [2] STARTUP REAL              [3] VENTAJA REAL
+tabla local, O(1)             medido en memoria             medida en memoria
+"i10~ +1~" en gris            "i10" blanco                  "+1" con color
+```
 
-| Movimiento | Teclas | Medido | Oficial |
-|---|---|---|---|
-| `1` | square | **i10 +8 HIT** | i10 / +8 |
-| `3` | cross | **i16 +7 HIT** | i16 / +7 |
-| `4` | circle | **i12 +6 HIT** | i12 / +6 |
-| `1+2` | square+triangle | **i14 +6 HIT** | i14 / +6 |
-| `3+4` | circle+cross | **i18 — KND** | i18 / KND |
-| id desconocido | — | **`#25 i15 +6`** (fallback) | — |
-| **PUNISH** | `1` tras bloqueo | **i10 HIT PUNISH** | ventana respetada |
-
-El HUD pintó en vivo la proyección (`1 i10~ +1~ TABLA`), la confirmación de
-memoria y la etiqueta roja `PUNISH` sobre el ender de `−11` del dummy. Las
-capturas están en `captures/ppsspp-20261027-*.png` y el registro completo de la
-sesión en [`tasks/06-sesion-live-2026-10-27.md`](tasks/06-sesion-live-2026-10-27.md).
+Los estados de guardia también son **datos, no código**: `data/states.json`
+guarda qué valores cuentan como bloqueo y `--learn` añade los que descubra, sin
+reiniciar el HUD.
 
 ---
 
-## 6. Herramientas
+## 11. Herramientas
 
 | Herramienta | Función |
 |---|---|
 | `tools/hud.py` | **el tracker en pantalla** (motor de medición + overlay) |
 | `tools/live.py` | el mismo motor en consola (sin ventana) |
-| `tools/diag.py` | registro en vivo frame a frame + eventos (depuración del castigo) |
-| `tools/test_tracker.py` | autotest determinista del motor, sin PPSSPP (`python tools/test_tracker.py`) |
-| `tools/notation.json` | nombres de golpe por personaje (compatibilidad; lo nuevo es `data/`) |
-| `tools/replay.py` | reproduce una grabación y muestra los eventos del tracker (depuración offline) |
-| `tools/psp_mem.py` | localiza la RAM de PSP dentro del proceso, lee memoria y detecta el disc ID (`--game-id`) |
-| `tools/scraper.py` | **scraper** de frame data pública -> `data/raw/<pj>_raw.json` |
-| `tools/mapper.py` | compila `raw/` + `mappings/` -> `data/compiled/<pj>.json` |
-| `tools/lookup_engine.py` | búsqueda O(1) Move ID -> frame data (la usa el motor híbrido) |
+| `tools/replay.py` | reproduce una grabación y muestra los eventos (depuración offline) |
+| `tools/test_tracker.py` | autotest determinista del motor, sin PPSSPP |
+| `tools/diag.py` | registro en vivo frame a frame + eventos |
+| `tools/scraper.py` | descarga frame data pública → `data/raw/<pj>_raw.json` |
+| `tools/mapper.py` | compila `raw/` + `mappings/` → `data/compiled/<pj>.json` |
+| `tools/lookup_engine.py` | búsqueda O(1) Move ID → frame data |
 | `tools/tracker_hybrid.py` | proyección de tabla + confirmación por memoria |
 | `tools/learn.py` | modo `--learn`: aprende IDs y estados de guardia |
-| `tools/game_states.py` | gestión de `data/states.json` (guardia agachada, etc.) |
-| `tools/inputrec.py` | grabador frame-accurate de pulsaciones + memoria (`--bin` para replay) |
-| `tools/advcheck.py` | calcula la ventaja desde `+0x294` / `+0x295` |
-| `tools/validate.py` | batería automática contra la frame data oficial |
-| `tools/padfind.py` | localiza la estructura del pad por diferencias de snapshot |
-| `tools/fieldscan.py` | escáner de campos de la estructura del jugador |
-| `tools/t6scan.py` | snapshots, películas de RAM, búsquedas, series temporales |
-| `tools/timeline.py` | volcado frame a frame de una película |
-| `tools/ppsspp_ws.py` | **bus persistente** WebSocket nativo en Python (puerto 8098) |
-| `tools/pad.py` | cliente del bus (`press`, `--combo`, `raw`) |
-| `tools/t6padd.mjs` | ⚠️ deprecado: lo sustituye `ppsspp_ws.py` (ya no hace falta Node) |
+| `tools/game_states.py` | gestión de `data/states.json` |
+| `tools/inputrec.py` | grabador de pulsaciones + memoria (`--bin` para replay) |
+| `tools/pad.py` | inyecta botones por el bus WebSocket (opcional) |
+| `tools/psp_mem.py` | localiza la RAM de PSP, lee memoria y detecta el disc ID |
 | `tools/capture-window.ps1` | captura la ventana de PPSSPP |
-| `build.ps1` + `framemod.spec` | empaqueta el HUD en un `.exe` autónomo (PyInstaller) |
 
-Ejemplos:
+Comprobación del motor sin emulador:
 
 ```powershell
-python tools/live.py --demo --seconds 10
-python tools/replay.py s43a --mids
-python tools/inputrec.py --name jab --bin --press square --at 0.7 --seconds 2
-python tools/scraper.py bryan            # frame data -> data/raw/
-python tools/mapper.py bryan             # raw + mapa -> data/compiled/
-python tools/lookup_engine.py bryan 7    # consulta O(1) de un Move ID
-python tools/psp_mem.py --game-id        # disc ID detectado en RAM
+python tools/test_tracker.py
 ```
 
-Las capturas quedan en `.cache/in/`.
+Debe terminar con `TODO OK`.
 
 ---
 
-## 7. Limitaciones conocidas
+## 12. Problemas frecuentes
 
-1. **`startup` en multi-hit del mismo id**: resuelto. El contador de animación
-   del atacante **reinicia a 1** en cada golpe de un string; ese reinicio abre un
-   segmento nuevo, así que el segundo golpe de un multi-hit se mide desde su
-   propio frame 1 (antes mostraba el acumulado, `i51`/`i52`).
-2. **Bloqueo con estados exóticos**: la guardia agachada usa un estado distinto
-   de `4178`. Ya no está fijado en el código: `data/states.json` los guarda y
-   `--learn` pregunta cuando ve una reacción de guardia desconocida. Queda
-   **confirmar en vivo** los valores de la guardia agachada de cada personaje.
-3. **±1 frame real**: no es ruido del medidor. Depende del frame activo que
-   conecta y del hitstop; aparece también en la frame data oficial como rangos.
-4. **Strings muy rápidos**: si dos golpes ocurren dentro de la misma animación
-   del defensor (sin que su estado cambie), se detecta por el reinicio del
-   contador de animación. Funciona en `4,3` y en los strings del dummy.
-5. **KD / stagger**: se detectan como `HIT` (la vida baja) pero no se distingue
-   knockdown, roll o stagger.
-6. **`PUNISH` requiere que el dummy haya bloqueado**: si su golpe te conecta
-   (estás en hitstun), no hay ventana que enseñar.
-7. **Nombres de golpe**: los ids de movimiento son **por personaje**. Sin tabla
-   se muestra el id crudo (`#7`, `#21`), correcto para cualquiera; con
-   `data/compiled/` o `--learn` se muestran los nombres reales.
-8. **Solo Practice**: en versus/arcade las direcciones y el flujo de estados
+| Síntoma | Causa / solución |
+|---|---|
+| `overlay already running` | Ya hay un HUD abierto. Ciérralo (o mata el proceso `python` que lo ejecuta) antes de abrir otro. |
+| No aparece ningún dato | Comprueba que PPSSPP está **abierto y en primer plano**, que es la versión de **64 bits** y que estás en **Practice**. Si el HUD se lanzó como administrador y PPSSPP no, o al revés, Windows puede bloquear la lectura. |
+| El panel aparece desplazado | Mueve PPSSPP y espera un segundo (se recoloca solo) o fija la posición con `--x` / `--y`. |
+| Todo sale como `BLOCK` | El dummy está en `GUARDIA TOTAL`. Cámbialo a `DE PIE` para medir HIT. |
+| Un golpe bajo no muestra nada | Comprueba que el golpe **conecta** (si el dummy lo bloquea debe salir BLOCK). Si sigue sin salir, ejecuta con `--learn`: el estado de guardia de tu personaje puede ser distinto del conocido y el HUD te lo ofrecerá para añadirlo. |
+| Números `±1` distintos a una web | Es normal: depende del frame activo que conecta y del *hitstop*. La medición es la del juego. |
+| El juego se congela al usar `tools/pad.py` | No envíes `buttons.send` en bucle: el debugger de PPSSPP se procesa en el hilo principal. Envía el botón una vez y libéralo con un mapa explícito. |
+| El HUD no se cierra | Se cierra solo al cerrar PPSSPP; si PPSSPP no aparece en 20 s, también se cierra. |
+
+Si nada de lo anterior encaja, arranca con `--debug` y mira la consola: cada
+evento se imprime con su frame, y los mensajes de `--learn` explican qué ID o
+estado ha visto.
+
+---
+
+## 13. Limitaciones
+
+1. **Solo Practice**: en versus/arcade las direcciones y el flujo de estados
    pueden cambiar.
-9. **La tabla es opcional y nunca manda sobre la medición**: si el `raw` no
-   tiene ese movimiento (p. ej. un id aprendido antes de scrapear al personaje),
-   el HUD lo enseña como `#id` hasta que exista el dato.
-
-### 7.1 Defensa + PUNISH (implementado)
-
-```
-P2 (dummy) ataca y P1 bloquea
-   ├─ contacto: el defensor sale del idle o reinicia su contador de animación
-   ├─ U1 = unlock de P1 (+0x295) → puede actuar
-   └─ U2 = unlock de P2 (+0x295) → fin de la recuperación del dummy
-
-ventaja del dummy = U1 − U2   (negativa si es castigable)
-```
-
-Implementación:
-
-1. `Reader.sample()` lee también `mid2`, `s1`, `hp1` y `hp2`.
-2. `mirror(s)` invierte los papeles y alimenta un **segundo `Tracker`**: el
-   mismo motor mide a P2 atacando sin duplicar lógica.
-3. Los dos trackers reciben **el mismo frame de juego** en cada muestra
-   (`TrackerThread.feed`), así que sus eventos se pueden comparar directamente.
-   Antes cada uno contaba con el contador de su jugador y derivaban.
-4. En el contacto de P1, si el golpe **conecta** y cumple la ventana del último
-   bloqueo (ver §5.1), es **PUNISH**. El aviso se emite con el impacto, nunca
-   antes.
-5. El `final` del tracker espejo se descarta (`—`) si ese contacto fue
-   interrumpido por el golpe de P1: su recuperación quedó cortada y el número
-   medido ya no es el bloqueo (antes publicaba basura como `−55`).
-6. El impacto de un golpe se mide en el frame de la **bajada de vida** (la
-   reacción llega un frame después); sin eso, todo castigo salía `i+1`.
-
-**Filtro clave**: el estado `2114` es a la vez ataque y *hitstun*, así que no
-sirve para distinguir. El contacto exige una señal inequívoca: **vida que baja**
-(golpe) o **guardia `4178`** (bloqueo). Antes se filtraba con "el defensor tiene
-move id `≠ 0` ⇒ está atacando", pero el juego escribe el estado varias muestras
-antes que el id: al empezar *tu* movimiento, el tracker espejo veía `estado=2114`
-con `id=0` y lo tomaba por una reacción del dummy (impactos absurdos y ventajas
-como `+45`/`+82`). Con la vida y la guardia como únicas señales, ese caso
-desaparece.
-
-### Próximos pasos
-
-1. **Confirmar en vivo** los estados de guardia agachada con `--learn` y
-   dejarlos en `data/states.json` (el código ya los acepta sin cambios).
-2. Mapear con `--learn` los ids de los personajes que juegas (Bruce, Kazuya…).
-   El `raw` de **38 de los 40** personajes ya está descargado; solo faltan los
-   Move IDs (`mokujin` y `panda` no tienen tabla propia).
-3. Probar el `.exe` empaquetado en un PC sin Python (`build.ps1`).
-4. Detectar el personaje **activo** desde la memoria para cargar su tabla sola
-   (hoy se elige con `--p1-char` / `--p2-char`).
+2. **±1 frame real**: no es ruido del medidor; aparece también en la frame data
+   oficial como rangos.
+3. **Knockdown / stagger**: se detectan como `HIT` (la vida baja) pero no se
+   distingue knockdown, roll o stagger.
+4. **`PUNISH` requiere que el rival haya bloqueado**: si su golpe te conecta (estás
+   en hitstun), no hay ventana que enseñar.
+5. **Nombres de golpe**: los IDs son por personaje y pueden repetirse entre
+   posturas (ver §8). Sin tabla se muestra el ID crudo, que siempre es correcto.
+6. **El bloqueo agachado depende del personaje**: los estados conocidos son
+   `4178` (de pie) y `12329` (bajos). Si tu personaje usa otra variante, `--learn`
+   la añade a `data/states.json` sin tocar código.
 
 ---
 
-## 8. Avisos
+## 14. Avisos
 
-- Solo lectura de memoria del emulador: no se modifica el juego.
-- Herramienta pensada para **Practice offline**. No usar en partidas online ni
-  para automatizar el juego de otras personas.
-- PPSSPP 1.19.3 se ha cerrado solo varias veces en esta sesión (acceso inválido
-  en `0x309fe0`), normalmente al guardar estado. Si pasa, relanzar con
-  `--state=...` recupera la partida al instante.
-- **No inundar el debugger:** enviar `input.buttons.send` en bucle (p. ej. cada
-  40 ms para "mantener" un botón) **congela la emulación**, porque el debugger
-  se procesa en el hilo principal. `buttons.send` mantiene el estado hasta que
-  se cambia: enviarlo una vez y liberar con un mapa explícito.
-- **No usar `PrintWindow`** para capturar la ventana: con el render D3D de
-  PPSSPP coincide con cuelgues. Usar `CopyFromScreen` / `ImageGrab` subiendo la
-  ventana a *topmost* un instante (`SetWindowPos` `HWND_TOPMOST` → capturar →
-  `HWND_NOTOPMOST`).
-- Con el **menú de Practice abierto el juego se pausa** (los contadores de
-  animación dejan de avanzar). No confundirlo con un cuelgue.
-- `backups/ppsspp.ini.original` guarda el `ppsspp.ini` de fábrica (el debugger
-  está activado en el perfil actual).
+- Solo **lectura** de memoria del emulador: no se modifica el juego.
+- Herramienta pensada para **práctica offline** con tu propia copia del juego. No
+  la uses en partidas online ni para automatizar el juego de otras personas.
+- No distribuyas el ISO con el proyecto: no está incluido.
 
 ---
 
-## 9. Documentación técnica
-
-- `tasks/01-ppsspp-debugger.md` — protocolo del debugger de PPSSPP.
-- `tasks/02-tekken6-memory.md` — primera exploración de memoria (⚠️ contiene un
-  error de `+0x400000` en las direcciones; corregido en el 04).
-- `tasks/03-lua-overlay.md` — diseño del overlay en LuaJIT (alternativa no usada).
-- `tasks/04-live-map.md` — **mapa de memoria y modelo de medición vigentes**.
-- `tasks/05-roadmap-hibrido.md` — **roadmap híbrido**: scraper, base local,
-  auto-aprendizaje, estados de guardia, portabilidad y empaquetado.
-- `data/README.md` — estructura y flujo de la base de datos local.
-- `GUIA-PRUEBAS.md` — cómo probarlo tú mismo y qué significa cada mensaje.
-
----
-
-## 10. Repositorio
-
-<https://github.com/Madvillainism/MokuMod-T6BR>
-
-```powershell
-git clone https://github.com/Madvillainism/MokuMod-T6BR.git
-cd MokuMod-T6BR
-python tools/hud.py --debug
-```
-
-No hay dependencias de Python fuera de la biblioteca estándar y **ya no hace
-falta Node.js** (el bus de entrada está reescrito en Python). Para inyectar
-botones (solo pruebas):
-
-```powershell
-python tools/pad.py --daemon
-```
-
-### Empaquetado (sin Python instalado)
+## 15. Empaquetado (sin Python instalado)
 
 ```powershell
 .\build.ps1              # -> dist\FRAMEMOD\FRAMEMOD.exe
 .\build.ps1 -OneFile     # -> dist\FRAMEMOD.exe (un solo archivo)
 ```
 
-El repo no incluye `.cache/` (grabaciones, savestates y capturas de trabajo),
-`captures/` ni los binarios de LuaJIT del intento de overlay en Lua.
+El `.exe` incluye el intérprete y las bibliotecas: sirve para un PC sin Python.
+
+---
+
+## Repositorio
+
+<https://github.com/Madvillainism/MokuMod-T6BR>
+
+No hay dependencias de Python fuera de la biblioteca estándar. El repo no incluye
+`.cache/` (grabaciones, savestates y capturas de trabajo) ni `captures/`.
+
+Documentación adicional:
+
+- [`GUIA-USO.txt`](GUIA-USO.txt) — guía de uso en texto plano.
+- [`GUIA-PRUEBAS.md`](GUIA-PRUEBAS.md) — cómo probarlo paso a paso y qué significa
+  cada mensaje.
+- [`data/README.md`](data/README.md) — estructura de la base de datos local.
