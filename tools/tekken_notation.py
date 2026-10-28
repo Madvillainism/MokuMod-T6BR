@@ -635,13 +635,14 @@ def _tables() -> None:
 def _match(char: str, *nums: str, data_dir: str | None = None) -> int:
     """Movimientos del catálogo que encajan con una medición en vivo.
 
-    Sirve para identificar un Move ID sin mapear: el HUD mide (startup, on
-    block) y aquí se buscan las entradas de la tabla que coinciden.  La ventaja
-    medida es el dato más fiable (el startup cambia si el golpe sale de una
-    transición), así que manda en el orden.
+    Sirve para identificar un Move ID sin mapear: el HUD mide (startup,
+    ventaja) y aquí se buscan las entradas de la tabla que coinciden.  La
+    ventaja medida se compara con el `on block` **y** con el `on hit` (el HUD
+    no siempre sabe si el rival bloqueó o comió el golpe) y se dice por cuál
+    encaja.  La ventaja es el dato más fiable; el startup cambia si el golpe
+    sale de una transición, así que solo desempata.
 
-    Un solo número se interpreta como `on block`; dos, como `startup` y
-    `on block`.
+    Un solo número se interpreta como ventaja; dos, como `startup` y ventaja.
     """
     def _int(text):
         text = str(text).strip()
@@ -650,36 +651,45 @@ def _match(char: str, *nums: str, data_dir: str | None = None) -> int:
     values = [_int(n) for n in nums if str(n).strip()]
     values = [v for v in values if v is not None]
     if not values:
-        print("--match necesita números: startup y/o on block")
+        print("--match necesita números: startup y/o ventaja")
         return 2
-    want_s, want_b = (None, values[0]) if len(values) == 1 else (values[0], values[1])
+    want_s, want_adv = (None, values[0]) if len(values) == 1 else (values[0], values[1])
     rows = []
     for key, info in load_moves(char, data_dir).items():
         s = info.get("startup")
-        b = info.get("on_block")
-        if not isinstance(b, int):
+        candidates = []
+        for field, name in (("on_block", "b"), ("on_hit", "h")):
+            value = info.get(field)
+            if isinstance(value, int):
+                candidates.append((name, value))
+        if not candidates:
             continue
+        if want_adv is None:
+            field, da = "b", 0
+        else:
+            field, value = min(candidates, key=lambda fv: abs(fv[1] - want_adv))
+            da = abs(value - want_adv)
         if want_s is None:
             ds = 0
         elif isinstance(s, int):
             ds = abs(int(s) - want_s)
         else:
             ds = 99
-        db = abs(b - want_b) if want_b is not None else 0
-        rows.append((db, ds, key, info))
+        rows.append((da, ds, key, info, field))
     if not rows:
-        print(f"{char}: el catálogo no tiene valores numéricos de on block")
+        print(f"{char}: el catálogo no tiene ventajas numéricas")
         return 1
     rows.sort(key=lambda r: (r[0], r[1]))
-    print(f"candidatos para {slugify(char)} (startup {want_s if want_s is not None else '?'}, "
-          f"block {want_b if want_b is not None else '?'}):")
-    for db, ds, key, info in rows[:12]:
-        if db > 3 or (want_s is not None and ds > 6):
+    print(f"candidatos para {slugify(char)} "
+          f"(startup {want_s if want_s is not None else '?'}, "
+          f"ventaja {want_adv if want_adv is not None else '?'}):")
+    for da, ds, key, info, field in rows[:12]:
+        if da > 3 or (want_s is not None and ds > 6):
             break
-        print("  %-22s i%-4s b%-5s h%-8s %-4s   (db=%d, di=%s)" % (
+        print("  %-22s i%-4s b%-5s h%-8s %-4s   (d=%d via %s, di=%s)" % (
             key, info.get("startup"), frame_text(info.get("on_block")),
             frame_text(info.get("on_hit")), info.get("type"),
-            db, "-" if ds == 99 else ds))
+            da, field, "-" if ds == 99 else ds))
     return 0
 
 

@@ -122,9 +122,10 @@ El HUD mide igual aunque no sepa el nombre. Para saber cual es:
 
     python tools/tekken_notation.py bryan --match 27 -29
 
-Busca en el catalogo los movimientos cuyo startup y on block encajan con lo
-que acabas de medir. Si no coincide ninguno, prueba solo con la ventaja
-(un numero suelto = on block):
+Busca en el catalogo los movimientos cuyo startup y ventaja encajan con lo
+que acabas de medir (la ventaja se compara con el "on block" y con el
+"on hit", y te dice por cual coincide). Si no coincide ninguno, prueba solo
+con la ventaja (un numero suelto):
 
     python tools/tekken_notation.py bryan --match -29
 

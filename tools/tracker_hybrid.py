@@ -97,7 +97,10 @@ class HybridTracker:
         char = self.character(player_id)
         if not char:
             return ("", "")
-        info = self.lookup.get_move_info(char, key or move_id) or {}
+        info = self.lookup.get_move_info(char, key or move_id)
+        if not info:
+            # ID sin mapear: no hay `on block` / `on hit` que enseñar.
+            return ("", "")
         return (_frame_text(info.get("on_block")),
                 _frame_text(info.get("on_hit")))
 
