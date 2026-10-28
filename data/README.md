@@ -76,8 +76,16 @@ La RAM solo da números (`7`, `10`, `14`…), no nombres. Dos formas:
 * **Manual**: edita `data/mappings/<personaje>_map.json`:
 
   ```json
-  { "7": "1", "10": "2", "14": "3" }
+  { "7": "1", "10": "2", "14": "3", "20": "3+4",
+    "crouch:10": "FC.4", "crouch:20": "qcb+3" }
   ```
+
+  La clave `crouch:<id>` es para los movimientos que **solo** existen saliendo de
+  la agachada y que comparten Move ID con otro de pie: el `20` es `3+4` de pie y
+  `qcb+3` agachado (verificado en vivo), el `10` es `2` de pie y `FC.4` agachado.
+  Sin la variante, el HUD no puede saber que el `20` agachado es un bajo y enseña
+  `#20` con las dos guardias; con ella mide, etiqueta y elige la guardia correcta.
+  `--learn` la guarda sola cuando el movimiento sale agachado.
 
 ### 3. Compilar la base final
 
@@ -126,9 +134,9 @@ ejecutarlo a mano.
 **Cómo se elige la guardia:** el HUD mira el campo `type` de la tabla del
 movimiento (`l` = low, `m`, `h`, `sm`). Un `l` solo se bloquea agachado, así que
 la guardia esperada es `crouch_block_states`; un `h`/`m`, la de pie; un `sm`,
-las dos. Si el atacante está agachado se aceptan las dos, porque los Move ID se
-repiten entre posturas (el `10` es `2` de pie y `FC.4` agachado). Sin tabla, se
-aceptan las dos y decide el *stun*.
+las dos. Si el atacante está agachado y no hay variante `crouch:<id>` se aceptan
+las dos, porque los Move ID se repiten entre posturas (el `10` es `2` de pie y
+`FC.4` agachado). Sin tabla, se aceptan las dos y decide el *stun*.
 
 **Confirmación:** un bloqueo solo se publica si el defensor queda **trabado**
 (`free2 = 0`) dentro del estado de guardia. El dummy en *Guard All* levanta la

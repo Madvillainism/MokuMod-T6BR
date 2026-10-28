@@ -68,13 +68,18 @@ class HybridTracker:
     def character(self, player_id: int) -> str | None:
         return self.char_p1 if int(player_id) == 1 else self.char_p2
 
-    def project(self, player_id: int, move_id: int) -> FrameDisplayData:
-        """Dato teórico inmediato (o fallback al ID crudo)."""
+    def project(self, player_id: int, move_id: int, key=None) -> FrameDisplayData:
+        """Dato teórico inmediato (o fallback al ID crudo).
+
+        `key` es la clave de tabla ya resuelta por el tracker ("20" o
+        "crouch:20"): el mismo Move ID puede ser dos movimientos distintos
+        según la postura y la proyección tiene que usar la entrada correcta.
+        """
         side = "P1" if int(player_id) == 1 else "P2"
         char = self.character(player_id)
         info = None
         if self.enabled and char and move_id:
-            info = self.lookup.get_move_info(char, move_id)
+            info = self.lookup.get_move_info(char, key or move_id)
         if not info:
             return FrameDisplayData(
                 move_name=f"#{move_id}", startup_str="i--", advantage_str="—",
@@ -97,7 +102,7 @@ class HybridTracker:
         )
 
     def qualitative_label(self, player_id: int, move_id: int,
-                          kind: str = "HIT") -> str | None:
+                          kind: str = "HIT", key=None) -> str | None:
         """Etiqueta no numérica de la tabla (KND, CS, SLD...) o None.
 
         Tras un derribo el desbloqueo del rival tarda ~60 frames: publicar
@@ -108,7 +113,7 @@ class HybridTracker:
         char = self.character(player_id)
         if not (char and move_id):
             return None
-        info = self.lookup.get_move_info(char, move_id) or {}
+        info = self.lookup.get_move_info(char, key or move_id) or {}
         on_hit = info.get("on_hit")
         if isinstance(on_hit, str):
             label = on_hit.strip().upper()
@@ -119,7 +124,7 @@ class HybridTracker:
     def confirm(self, display: FrameDisplayData | None, move_id: int,
                 measured_startup: int | None, measured_adv: int | None,
                 hit_type: str, side: str = "P1",
-                qualitative: bool = True) -> FrameDisplayData:
+                qualitative: bool = True, key=None) -> FrameDisplayData:
         """La memoria manda: sustituye lo proyectado por lo medido.
 
         `qualitative=False` ignora la etiqueta de la tabla (KND...): se usa
@@ -130,7 +135,8 @@ class HybridTracker:
         startup = f"i{measured_startup}" if measured_startup is not None else "i--"
         label = None
         if hit_type == "HIT" and qualitative:
-            label = self.qualitative_label(1 if side == "P1" else 2, move_id)
+            label = self.qualitative_label(1 if side == "P1" else 2, move_id,
+                                           key=key)
         if label:
             hit_type = label
             measured_adv = None

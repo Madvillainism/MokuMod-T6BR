@@ -19,6 +19,15 @@
       "on_ch": null,
       "damage": 12
     },
+    "11": {
+      "notation": "d+4",
+      "type": "l",
+      "startup": 15,
+      "on_block": -11,
+      "on_hit": 0,
+      "on_ch": null,
+      "damage": 13
+    },
     "12": {
       "notation": "4,3",
       "type": "h, m",
@@ -62,6 +71,24 @@
       "on_block": -8,
       "on_hit": "KND",
       "on_ch": null,
+      "damage": 24
+    },
+    "crouch:10": {
+      "notation": "FC.4",
+      "type": "l",
+      "startup": 12,
+      "on_block": -15,
+      "on_hit": -4,
+      "on_ch": null,
+      "damage": 12
+    },
+    "crouch:20": {
+      "notation": "qcb+3",
+      "type": "l",
+      "startup": 22,
+      "on_block": -14,
+      "on_hit": 2,
+      "on_ch": "KND",
       "damage": 24
     }
   }

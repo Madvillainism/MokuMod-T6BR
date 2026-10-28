@@ -143,8 +143,13 @@ Como comprobarlo:
     Los dos numeros son medidas reales del juego.
 
 Los IDs de movimiento se repiten entre posturas: el mismo ID puede ser un "2"
-de pie y un "FC.4" agachado. Por eso, si haces un ataque agachado y la tabla
-dice que ese ID es un alto, el HUD no proyecta la tabla y muestra el ID crudo
+de pie y un "FC.4" agachado, o un "3+4" de pie y un "qcb+3" agachado. El mapa
+del personaje lo resuelve con la clave "crouch:<id>":
+
+    { "20": "3+4", "crouch:20": "qcb+3", "10": "2", "crouch:10": "FC.4" }
+
+Con esa entrada el HUD mide y etiqueta el golpe agachado como cualquier otro
+(ej. qcb+3 i19 -14). Sin ella no proyecta la tabla y muestra el ID crudo
 ("#10"): es preferible no ensenar nada a ensenar el nombre y la frame data de
 otro movimiento. La medicion (startup y ventaja) es correcta igual.
 

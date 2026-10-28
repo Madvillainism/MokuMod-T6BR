@@ -313,6 +313,30 @@ class Tracker:
         return (s["s1"] in ATTACK_STATES
                 and self.last_idle in self.crouch_idle_states)
 
+    def key_for(self, mid, crouch=False):
+        """Clave de tabla del movimiento: `"20"` o `"crouch:20"`.
+
+        El motor reutiliza Move IDs entre posturas: el 20 es "3+4" de pie y
+        qcb+3 agachado (verificado en vivo), el 10 es "2" de pie y FC.4
+        agachado.  El mapa puede declarar la variante agachada con la clave
+        `crouch:<id>`; si existe, manda para el atacante agachado.  Sin esa
+        clave se usa el ID normal (y `label_for` decide si es de fiar).
+        """
+        if crouch:
+            key = f"crouch:{mid}"
+            if key in self.notation or key in self.move_types:
+                return key
+        return str(mid)
+
+    def _note(self, key):
+        """Notación de una clave de tabla (las de ID se guardan como int)."""
+        if key in self.notation:
+            return self.notation[key]
+        try:
+            return self.notation.get(int(key))
+        except (TypeError, ValueError):
+            return None
+
     def label_for(self, mid, crouch=False):
         # Unknown characters keep the raw id: the measurement is universal,
         # only the pretty name depends on the character's move list.
@@ -321,33 +345,51 @@ class Tracker:
         # game reuses Move IDs between stances (verified: id 10 is "2" standing
         # and FC.4 crouching), so the standing entry would name another move
         # and project its frame data.  The raw id is the honest label there.
-        if crouch and self.hit_level(mid) == "h":
+        key = self.key_for(mid, crouch)
+        if crouch and key == str(mid) and self.hit_level(mid) == "h":
             return f"#{mid}"
-        return self.notation.get(mid) or f"#{mid}"
+        return self._note(key) or f"#{mid}"
 
-    def hit_level(self, mid):
+    def is_untrusted(self, mid, crouch):
+        """¿La entrada de tabla de este ID no puede ser la del golpe?
+
+        Solo se sabe en un caso: ataque agachado cuya única entrada es un
+        "alto" (imposible agachado) y sin variante `crouch:<id>` declarada.
+        """
+        return bool(crouch and self.key_for(mid, True) == str(mid)
+                    and self.hit_level(mid) == "h")
+
+    def hit_level(self, mid, crouch=False):
         """Nivel del golpe según la tabla: "l", "m", "h", "sm" o None.
 
         Un string ("h, h, l") se queda con su último golpe, que es el que se
         está midiendo cuando llega el contacto.
         """
-        raw = self.move_types.get(mid)
+        key = self.key_for(mid, crouch)
+        raw = self.move_types.get(key)
+        if not raw:
+            try:
+                raw = self.move_types.get(int(key))
+            except (TypeError, ValueError):
+                raw = None
         if not raw:
             return None
         parts = [p.strip() for p in str(raw).split(",") if p.strip()]
         return parts[-1] if parts else None
 
-    def guard_states(self, mid, attacker_state):
+    def guard_states(self, mid, attacker_state, crouch=None):
         """Estados de guardia que cuentan como bloqueo de este movimiento.
 
         El `type` de la tabla manda: un bajo ("l") solo se puede bloquear
         agachado, así que la reacción esperada es la guardia agachada; altos y
         medios usan la de pie.  Los Move ID se repiten entre posturas
-        (verificado: el 10 es "2" de pie y d+4 agachado), así que si el
-        atacante está en un ataque agachado se aceptan las dos: la tabla no
-        basta para desambiguar y el bloqueo real lo confirma el stun.
+        (verificado: el 20 es "3+4" de pie y qcb+3 agachado), así que si la
+        tabla no distingue la postura se aceptan las dos: el bloqueo real lo
+        confirma el stun.
         """
-        level = self.hit_level(mid)
+        if crouch is None:
+            crouch = attacker_state in self.crouch_attack_states
+        level = self.hit_level(mid, crouch)
         both = self.block_states | self.crouch_block_states
         if level is None:
             return both
@@ -355,7 +397,7 @@ class Tracker:
             return self.crouch_block_states
         if level == "sm":               # medio especial: se bloquea en las dos
             return both
-        if attacker_state in self.crouch_attack_states:
+        if crouch:
             return both
         return self.block_states
 
@@ -393,6 +435,7 @@ class Tracker:
             "p2u": contact.get("p2u"),
             "punished": bool(contact.get("punished")),
             "crouch": bool(contact.get("crouch")),
+            "key": contact.get("key", str(contact.get("mid", 0))),
             "untrusted": bool(contact.get("untrusted")),
         }
 
@@ -477,9 +520,9 @@ class Tracker:
                         "label": label,
                         "mid": raw,
                         "crouch": crouch,
-                        "level": self.hit_level(raw),
-                        "untrusted": bool(crouch
-                                          and self.hit_level(raw) == "h"),
+                        "level": self.hit_level(raw, crouch),
+                        "key": self.key_for(raw, crouch),
+                        "untrusted": self.is_untrusted(raw, crouch),
                     })
             else:
                 self.seg_start = None
@@ -518,7 +561,13 @@ class Tracker:
         d_new = self.prev_s2 is not None and d_state != self.prev_s2
 
         hit = hp_drop
-        guard = self.guard_states(s["mid"], s["s1"])
+        crouch_now = self.is_crouch(s)
+        # El ID crudo manda (el segundo golpe de un string lo cambia en el mismo
+        # frame del contacto), pero si el motor lo borra en ese frame se usa el
+        # último ID aceptado: con 0 la tabla no sabe el nivel y aceptaría
+        # cualquier guardia como bloqueo.
+        mid_now = s["mid"] or self.mid
+        guard = self.guard_states(mid_now, s["s1"], crouch_now)
         # A real block *locks* the defender (free2 == 0) for the blockstun.
         # In Guard All the dummy raises its guard as soon as it sees an attack
         # start, so a whiffed move leaves it in the guard state for a couple of
@@ -569,15 +618,15 @@ class Tracker:
                 "start": seg[0],
                 "startup": startup,
                 "label": seg[1],
-                "mid": s["mid"],
+                "mid": mid_now,
                 "kind": "HIT" if hit else "BLOCK",
                 "hp_pre": self.prev_hp,
                 "hp_min": s["hp2"],
                 "p1u": None,
                 "p2u": None,
-                "crouch": self.is_crouch(s),
-                "untrusted": bool(self.is_crouch(s)
-                                  and self.hit_level(s["mid"]) == "h"),
+                "crouch": crouch_now,
+                "key": self.key_for(mid_now, crouch_now),
+                "untrusted": self.is_untrusted(mid_now, crouch_now),
             }
             if hit or locked:
                 events.append(self.event("impact", self.contact, None))
@@ -709,8 +758,13 @@ class TrackerThread(threading.Thread):
     # -- fast feedback --------------------------------------------------
     def _key(self, ev):
         # The move id is per character, so the side goes in the key: P1 and P2
-        # can be different characters and share ids.
-        return (ev["side"], ev["mid"], ev["kind"])
+        # can be different characters and share ids.  The stance goes in too:
+        # the same id is two different moves standing and crouching (20 =
+        # 3+4 / qcb+3), so their measured values must not mix.
+        key = ev.get("key") or str(ev["mid"])
+        if str(key).isdigit():
+            key = int(key)
+        return (ev["side"], key, ev["kind"])
 
     def predicted(self, ev):
         """Last measured value for this move, shown while the new one is
@@ -785,12 +839,12 @@ class TrackerThread(threading.Thread):
         # imposible (los IDs se repiten entre posturas: el 10 es "2" de pie y
         # FC.4 agachado).  Mejor no proyectar nada que proyectar otro golpe.
         if self.hybrid is not None and not ev.get("untrusted"):
-            display = self.hybrid.project(player, ev["mid"])
+            display = self.hybrid.project(player, ev["mid"], key=ev.get("key"))
         self.display[side] = display
         ev["display"] = display
         ev["predict"] = None
         if self.learner is not None:
-            self.learner.offer_move(side, ev["mid"])
+            self.learner.offer_move(side, ev["mid"], bool(ev.get("crouch")))
 
     def _confirm(self, ev):
         """Fase 2: la medición de memoria sustituye al dato proyectado."""
@@ -801,7 +855,7 @@ class TrackerThread(threading.Thread):
         kind = "PUNISH" if ev.get("punish") else ev["kind"]
         display = self.hybrid.confirm(
             self.display.get(side), ev["mid"], ev["startup"], adv, kind, side,
-            qualitative=not ev.get("untrusted"),
+            qualitative=not ev.get("untrusted"), key=ev.get("key"),
         )
         if display.hit_type not in ("HIT", "BLOCK", "PUNISH"):
             # Golpe que derriba (KND): la tabla pone la etiqueta y el número
@@ -1051,9 +1105,20 @@ def notation_for(char, lookup):
         # etiqueta pondría el ID 1 como "1" (coincidencia falsa).
         if not source.endswith("_raw.json"):
             for move_id, info in lookup.tables[key].items():
-                if info.get("notation") and str(move_id).isdigit():
-                    table[int(move_id)] = str(info["notation"])
+                if info.get("notation"):
+                    table[table_key(move_id)] = str(info["notation"])
     return table
+
+
+def table_key(move_id):
+    """Clave de tabla: int para un Move ID, str para `crouch:<id>`.
+
+    El mapa puede declarar la variante agachada de un ID compartido
+    (`"crouch:20": "qcb+3"`); esas claves viajan como texto para no confundirlas
+    con el ID 20 de pie.
+    """
+    text = str(move_id).strip().lstrip("#")
+    return int(text) if text.isdigit() else text
 
 
 def move_types_for(char, lookup):
@@ -1074,8 +1139,8 @@ def move_types_for(char, lookup):
         return types
     for move_id, info in lookup.tables[key].items():
         level = info.get("type")
-        if level and str(move_id).isdigit():
-            types[int(move_id)] = str(level).strip().lower()
+        if level:
+            types[table_key(move_id)] = str(level).strip().lower()
     return types
 
 

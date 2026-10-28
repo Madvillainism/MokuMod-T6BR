@@ -221,9 +221,12 @@ Los golpes bajos son un caso aparte y el HUD los trata como tales:
   *blockstun*) y, si nunca ocurre, descarta el evento. Sin esto se publicaban
   bloqueos fantasma, ventajas inventadas y castigos falsos.
 - **Los IDs de movimiento se repiten entre posturas.** Verificado en vivo: el
-  mismo ID puede ser un `2` de pie y un `FC.4` agachado. Por eso, si el atacante
-  está agachado y la tabla dice que ese ID es un alto, el HUD **no** proyecta la
-  tabla y muestra el ID crudo (`#10`): es preferible no enseñar nada a enseñar el
+  mismo ID puede ser un `2` de pie y un `FC.4` agachado, o un `3+4` de pie y un
+  `qcb+3` agachado. El mapa del personaje lo resuelve con una clave aparte para
+  la variante agachada (`"crouch:20": "qcb+3"`), así que el bajo se mide y se
+  etiqueta con su nombre y su frame data. Sin esa entrada, si el atacante está
+  agachado y la tabla dice que ese ID es un alto, el HUD **no** proyecta la tabla
+  y muestra el ID crudo (`#10`): es preferible no enseñar nada a enseñar el
   nombre y la frame data de otro movimiento.
 - **Cómo comprobarlo tú mismo**: pon el dummy en `GUARDIA TOTAL`, haz un bajo y
   deberías ver `BLOCK` con su ventaja (por ejemplo `i12 −15`); cámbialo a

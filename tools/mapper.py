@@ -107,17 +107,35 @@ def compile_all(data_dir: str | None = None) -> int:
     return ok
 
 
+def _map_order(key):
+    """Orden del mapa: primero los Move ID, luego las variantes `crouch:<id>`."""
+    text = str(key)
+    if text.isdigit():
+        return (0, int(text), "")
+    if text.startswith("crouch:") and text[7:].isdigit():
+        return (1, int(text[7:]), "")
+    return (2, 0, text)
+
+
 def add_mapping(char_name: str, move_id: int | str, notation: str,
                 data_dir: str | None = None) -> str:
-    """Añade/actualiza un ID en el mapa (lo usa el modo --learn)."""
+    """Añade/actualiza un ID en el mapa (lo usa el modo --learn).
+
+    `move_id` puede ser un ID (`20`) o una variante de postura
+    (`"crouch:20"`): el mismo ID es dos movimientos distintos de pie y
+    agachado, y cada uno necesita su entrada.
+    """
     base = os.path.abspath(data_dir or DEFAULT_DATA_DIR)
     char = char_name.strip().lower()
     map_path = os.path.join(base, "mappings", f"{slugify(char)}_map.json")
     id_map = _read(map_path, {})
     if not isinstance(id_map, dict):
         id_map = {}
-    id_map[str(int(str(move_id).lstrip("#")))] = str(notation).strip()
-    _write(map_path, dict(sorted(id_map.items(), key=lambda kv: int(kv[0]))))
+    key = str(move_id).strip().lstrip("#")
+    if key.isdigit():
+        key = str(int(key))
+    id_map[key] = str(notation).strip()
+    _write(map_path, dict(sorted(id_map.items(), key=lambda kv: _map_order(kv[0]))))
     return map_path
 
 

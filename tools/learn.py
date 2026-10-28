@@ -42,7 +42,7 @@ class Learner:
         self.stream = stream or sys.stdout
         self.queue: queue.Queue = queue.Queue()
         self.muted = False
-        self.asked_moves: set[tuple[str, int]] = set()
+        self.asked_moves: set[tuple[str, object]] = set()
         self.asked_states: set[int] = set()
         self.thread = None
         if self.characters:
@@ -50,20 +50,27 @@ class Learner:
             self.thread.start()
 
     # -- API para el tracker --------------------------------------------
-    def offer_move(self, side: str, move_id: int) -> None:
-        """Un Move ID desconocido acaba de empezar (frame 0)."""
+    def offer_move(self, side: str, move_id: int, crouch: bool = False) -> None:
+        """Un Move ID desconocido acaba de empezar (frame 0).
+
+        `crouch` marca los movimientos que salen de la agachada: el motor
+        reutiliza IDs entre posturas (el 20 es "3+4" de pie y qcb+3 agachado),
+        así que un ID que solo se ha visto agachado se guarda como
+        `crouch:<id>` y no pisa la entrada de pie.
+        """
         if self.muted or not move_id:
             return
         char = self.characters.get(side)
         if not char:
             return
-        key = (char, int(move_id))
+        key_id = f"crouch:{int(move_id)}" if crouch else int(move_id)
+        key = (char, key_id)
         if key in self.asked_moves:
             return
-        if self.lookup is not None and self.lookup.get_move_info(char, move_id):
+        if self.lookup is not None and self.lookup.get_move_info(char, key_id):
             return
         self.asked_moves.add(key)
-        self.queue.put(("move", char, int(move_id)))
+        self.queue.put(("move", char, key_id))
 
     def offer_state(self, state: int) -> None:
         """Reacción de guardia con un estado que no está en states.json."""

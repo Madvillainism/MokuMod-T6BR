@@ -142,12 +142,10 @@ class FrameTableLookup:
             self.load_character(char)
         if not self.is_id_indexed(char):
             return None
-        try:
-            key = str(int(str(move_id).lstrip("#")))
-        except (TypeError, ValueError):
-            key = str(move_id)
+        key = str(move_id).lstrip("#").strip()
+        if key.isdigit():
+            key = str(int(key))
         return self.tables.get(char, {}).get(key)
-
     def has_character(self, char: str | None) -> bool:
         return bool(char) and char.strip().lower() in self.tables
 

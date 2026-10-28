@@ -218,7 +218,8 @@ def test_one_block_one_punish():
 
 
 def low_attack(reaction=CROUCH_BLOCK, lock=True, hit=False,
-               p1_state=CROUCH_ATTACK, types=None, startup=12):
+               p1_state=CROUCH_ATTACK, types=None, startup=12,
+               move_id=LOW_ID, notation=None, idle_state=IDLE2):
     """P1 lanza un golpe bajo (id 10) y el dummy reacciona.
 
     Reproduce las dos trazas medidas en vivo:
@@ -228,12 +229,12 @@ def low_attack(reaction=CROUCH_BLOCK, lock=True, hit=False,
       * amago de guardia: el ataque pasa de largo, 12329 dura un par de
         muestras con free2 = 1 y vuelve a idle.  Eso NO es un bloqueo.
     """
-    sim = Sim(p1_types=types)
+    sim = Sim(p1_notation=notation, p1_types=types)
     for _ in range(5):
-        sim.frame()
+        sim.frame(s1=idle_state)
 
     def step(**kw):
-        kw.setdefault("mid", LOW_ID)
+        kw.setdefault("mid", move_id)
         kw.setdefault("s1", p1_state)
         sim.frame(**kw)
 
@@ -368,6 +369,44 @@ def test_crouch_label_not_standing_move():
         sim.frame(mid=LOW_ID, s1=CROUCH_ATTACK, c1=c)
     assert sim.all("P1", "start")[0]["label"] == "FC.4"
     print("ok  ID compartido: agachado sin etiqueta falsa, de pie intacto")
+
+
+def test_shared_id_crouch_key():
+    """ID 20 = "3+4" de pie y qcb+3 agachado: clave `crouch:20`.
+
+    Fallo real (verificado en vivo): el qcb+3 de Bryan saca el Move ID 20, el
+    mismo del 3+4.  El HUD lo llamaba "3+4" y, como la tabla dice que 3+4 es
+    medio, la guardia agachada del dummy no contaba como bloqueo: no se
+    publicaba *nada* al bloquear el qcb+3.  Con la variante `crouch:20` la
+    entrada es la del bajo (tipo "l", b-14) y el bloqueo se mide.
+    """
+    nota = {20: "3+4", "crouch:20": "qcb+3"}
+    types = {20: "m", "crouch:20": "l"}
+
+    # de pie: sigue siendo 3+4 y se bloquea de pie
+    sim = low_attack(reaction=BLOCK, p1_state=ATTACK, move_id=20,
+                     types=types, notation=nota)
+    ev = sim.find("P1", "impact")
+    assert ev is not None and ev["label"] == "3+4", ev and ev["label"]
+    assert ev["kind"] == "BLOCK" and ev["key"] == "20", ev
+
+    # agachado (estado 2114 tras el idle agachado, como en vivo): qcb+3
+    sim = low_attack(reaction=CROUCH_BLOCK, p1_state=ATTACK,
+                     idle_state=CROUCH_IDLE, move_id=20,
+                     types=types, notation=nota)
+    ev = sim.find("P1", "impact")
+    assert ev is not None, "el qcb+3 bloqueado agachado no se midió"
+    assert ev["label"] == "qcb+3", ev["label"]
+    assert ev["key"] == "crouch:20", ev["key"]
+    assert ev["untrusted"] is False
+    fin = sim.find("P1", "final")
+    assert fin is not None and fin["adv"] is not None, fin
+
+    # agachado no puede aceptar la guardia de pie (es un bajo)
+    sim = low_attack(reaction=BLOCK, p1_state=ATTACK, idle_state=CROUCH_IDLE,
+                     move_id=20, types=types, notation=nota)
+    assert sim.all("P1", "impact") == [], "un bajo aceptó la guardia de pie"
+    print("ok  ID compartido: 3+4 de pie y qcb+3 agachado (clave crouch:20)")
 
 
 def test_startup_from_counter():
@@ -521,6 +560,22 @@ def test_mapper_compile():
         with open(os.path.join(tmp, "compiled", "test.json"), encoding="utf-8") as fh:
             compiled = json.load(fh)
         assert "43" not in compiled["moves"]
+
+        # variante de postura: el mismo ID puede ser dos movimientos
+        with open(os.path.join(tmp, "raw", "test_raw.json"), "w", encoding="utf-8") as fh:
+            json.dump({"moves": {"f+2": {"startup": 14, "on_block": -3},
+                                 "qcb+3": {"type": "l", "startup": 22,
+                                           "on_block": -14}}}, fh)
+        mapper.add_mapping("test", "crouch:42", "qcb+3", tmp)
+        mapper.compile_character_db("test", tmp, quiet=True)
+        with open(os.path.join(tmp, "compiled", "test.json"), encoding="utf-8") as fh:
+            compiled = json.load(fh)
+        assert compiled["moves"]["42"]["notation"] == "f+2"
+        assert compiled["moves"]["crouch:42"]["notation"] == "qcb+3"
+        assert compiled["moves"]["crouch:42"]["on_block"] == -14
+        with open(os.path.join(tmp, "mappings", "test_map.json"), encoding="utf-8") as fh:
+            order = list(json.load(fh))
+        assert order == ["42", "43", "crouch:42"], order
     print("ok  mapper: Move ID -> notación -> frame data, sin inventar datos")
 
 
@@ -599,6 +654,7 @@ if __name__ == "__main__":
     test_low_hit()
     test_type_selects_guard()
     test_crouch_label_not_standing_move()
+    test_shared_id_crouch_key()
     test_startup_from_counter()
     test_same_id_pressed_again()
     test_string_startup_from_animation()
