@@ -535,6 +535,89 @@ def test_hybrid_projection():
     print("ok  híbrido: tabla al instante (i10~ +1~) y memoria manda (i10 +8)")
 
 
+def test_tekken_notation():
+    """Notación Tekken -> botones de PSP -> catálogo `data/raw`."""
+    import tekken_notation as tk
+
+    # Forma canónica: la que usan los `_raw.json`
+    assert tk.canonical("d/f+3") == "df+3"
+    assert tk.canonical("DF+3") == "df+3"
+    assert tk.canonical("ws + 2") == "ws2"
+    assert tk.canonical("fc.4") == "FC.4"
+    assert tk.canonical("qcb+3") == "qcb+3"
+    assert tk.canonical("f,F+2") == "f,F+2"     # mantener adelante != ff
+    assert tk.canonical("1,2") == "1,2"         # dos golpes
+    assert tk.canonical("1+2") == "1+2"         # a la vez
+    assert tk.canonical("f,n,d,df+3") == "f,n,d,df+3"
+
+    # Botones: círculo = 4, cuadrado = 1, triángulo = 2, cruz = 3
+    assert tk.buttons("df+3") == (3,)
+    assert tk.buttons("1+2") == (1, 2)
+    assert tk.button_names("df+3") == ["down", "right", "cross"]
+    assert tk.psp_steps("qcb+3") == [
+        ("down",), ("down", "left"), ("left", "cross")]
+
+    # Enlace con el catálogo real (no adivina: si no está, None)
+    info = tk.lookup("bryan", "df+3")
+    assert info is not None and info["notation"] == "df+3", info
+    assert info["startup"] == 27 and info["on_block"] == -29, info
+    assert info["on_hit"] == "KND", info["on_hit"]
+    assert tk.lookup("bryan", "d/f+3")["notation"] == "df+3"
+    assert tk.lookup("bryan", "no-existe") is None
+
+    # `on_hit` cualitativo: la etiqueta se enseña, no se calcula
+    assert tk.is_qualitative("KND") and not tk.is_qualitative(-14)
+    assert tk.frame_text("KND") == "KND" and tk.frame_text(-14) == "-14"
+
+    # Todas las claves de todos los raw se parsean (estructura, no vocabulario)
+    root = os.path.dirname(HERE)
+    import glob
+    import json
+
+    total = 0
+    for path in glob.glob(os.path.join(root, "data", "raw", "*_raw.json")):
+        with open(path, encoding="utf-8") as fh:
+            moves = (json.load(fh).get("moves") or {})
+        for key in moves:
+            total += 1
+            parts = tk.parse(key)
+            assert parts, key
+            assert any(p.buttons or p.prefix for p in parts), key
+    assert total > 5000, total
+    print(f"ok  notación: canónica + botones PSP + {total} claves raw parseadas")
+
+
+def test_table_frames_and_knd():
+    """El HUD enseña `on block` / `on hit` de la tabla; KND no se calcula."""
+    from lookup_engine import FrameTableLookup
+    from tracker_hybrid import HybridTracker
+
+    root = os.path.dirname(HERE)
+    lookup = FrameTableLookup(os.path.join(root, "data"))
+    assert lookup.load_character("bryan"), "falta data/compiled/bryan.json"
+    hybrid = HybridTracker(lookup, "bryan", "bryan")
+
+    # ID compartido: de pie es 3+4 (on hit KND), agachado qcb+3
+    d = hybrid.project(1, 20, key="crouch:20")
+    assert d.move_name == "qcb+3", d.move_name
+    assert d.table_str == "b-14 h+2", d.table_str
+    d = hybrid.project(1, 20)
+    assert d.move_name == "3+4" and d.table_str == "b-8 hKND", d.table_str
+
+    # Golpe que derriba: la ventaja medida (+60 al levantarse) no se publica
+    d = hybrid.confirm(d, 20, 18, 60, "HIT", "P1")
+    assert d.hit_type == "KND", d.hit_type
+    assert d.advantage_str == "—", d.advantage_str
+    assert d.table_str == "b-8 hKND", d.table_str
+
+    # Un golpe normal sigue midiendo: la tabla va al lado, no la sustituye
+    d = hybrid.project(1, 7)
+    d = hybrid.confirm(d, 7, 10, 8, "HIT", "P1")
+    assert d.hit_type == "HIT" and d.advantage_str == "+8", d
+    assert d.table_str == "b+1 h+8", d.table_str
+    print("ok  tabla b/h en el HUD y KND sin frames calculados")
+
+
 def test_mapper_compile():
     """raw + mappings -> compiled (y --learn recompila en caliente)."""
     import json
@@ -660,6 +743,8 @@ if __name__ == "__main__":
     test_string_startup_from_animation()
     test_notation()
     test_hybrid_projection()
+    test_tekken_notation()
+    test_table_frames_and_knd()
     test_mapper_compile()
     test_states_config()
     test_learner_asks_and_saves()

@@ -37,10 +37,27 @@ class FrameDisplayData:
     color_code: str      # clave de COLOR_HEX
     move_id: int = 0
     side: str = "P1"
+    block_str: str = ""  # "on block" de la tabla (-14, -29…)
+    hit_str: str = ""    # "on hit" de la tabla (+2, KND…)
 
     @property
     def color(self) -> str:
         return COLOR_HEX.get(self.color_code, COLOR_HEX["white"])
+
+    @property
+    def table_str(self) -> str:
+        """`on block` / `on hit` de la tabla en una línea corta: `b-29 hKND`."""
+        if not self.block_str and not self.hit_str:
+            return ""
+        return f"b{self.block_str or '?'} h{self.hit_str or '?'}"
+
+
+def _frame_text(value) -> str:
+    """`-14` -> `-14`, `KND` -> `KND`, vacío -> `?`."""
+    if isinstance(value, int):
+        return f"{value:+d}"
+    text = str(value or "").strip()
+    return text or "?"
 
 
 def _colour_for(adv, kind: str) -> str:
@@ -68,6 +85,22 @@ class HybridTracker:
     def character(self, player_id: int) -> str | None:
         return self.char_p1 if int(player_id) == 1 else self.char_p2
 
+    def table_frames(self, player_id: int, move_id: int, key=None) -> tuple[str, str]:
+        """(`on block`, `on hit`) de la tabla, tal cual: `('-29', 'KND')`.
+
+        Es el dato del catálogo, no una medición: se enseña junto al valor
+        medido para poder comparar.  Si `on_hit` es una etiqueta (`KND`), se
+        devuelve la etiqueta y nunca se calculan frames.
+        """
+        if not (self.enabled and move_id):
+            return ("", "")
+        char = self.character(player_id)
+        if not char:
+            return ("", "")
+        info = self.lookup.get_move_info(char, key or move_id) or {}
+        return (_frame_text(info.get("on_block")),
+                _frame_text(info.get("on_hit")))
+
     def project(self, player_id: int, move_id: int, key=None) -> FrameDisplayData:
         """Dato teórico inmediato (o fallback al ID crudo).
 
@@ -90,6 +123,7 @@ class HybridTracker:
         on_block = info.get("on_block")
         startup_str = f"i{startup}~" if isinstance(startup, int) else "i--"
         adv_str = f"{on_block:+d}~" if isinstance(on_block, int) else "—"
+        block_str, hit_str = self.table_frames(player_id, move_id, key)
         return FrameDisplayData(
             move_name=str(info.get("notation") or f"#{move_id}"),
             startup_str=startup_str,
@@ -99,6 +133,8 @@ class HybridTracker:
             color_code="gray",
             move_id=int(move_id),
             side=side,
+            block_str=block_str,
+            hit_str=hit_str,
         )
 
     def qualitative_label(self, player_id: int, move_id: int,
@@ -141,6 +177,14 @@ class HybridTracker:
             hit_type = label
             measured_adv = None
         adv = f"{measured_adv:+d}" if measured_adv is not None else "—"
+        if qualitative:
+            # Solo se enseña la tabla si la entrada del ID es de fiar: con un ID
+            # compartido sin variante `crouch:<id>` el `on block`/`on hit`
+            # podría ser el de otro movimiento.
+            block_str, hit_str = self.table_frames(
+                1 if side == "P1" else 2, move_id, key)
+        else:
+            block_str, hit_str = "", ""
         return FrameDisplayData(
             move_name=name,
             startup_str=startup,
@@ -150,4 +194,6 @@ class HybridTracker:
             color_code=_colour_for(measured_adv, hit_type),
             move_id=int(move_id),
             side=side,
+            block_str=block_str,
+            hit_str=hit_str,
         )

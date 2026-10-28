@@ -161,6 +161,35 @@ python tools/lookup_engine.py bryan 7      # detalle de un Move ID
 python tools/mapper.py --list              # personajes con mapa
 ```
 
+## Notación y botones
+
+`raw/` está indexado por **notación Tekken** (`df+3`, `qcb+3`, `FC.4`, `1,2`…),
+que es el idioma común para escribir entradas y propiedades. `tools/tekken_notation.py`
+la parsea, la traduce a los botones de la PSP y la cruza con el catálogo:
+
+| Botón PSP | Notación |
+|---|---|
+| Cuadrado | `1` (LP) |
+| Triángulo | `2` (RP) |
+| Cruz | `3` (LK) |
+| Círculo | `4` (RK) |
+
+```powershell
+python tools/tekken_notation.py bryan df+3          # botones + startup + b/h
+python tools/tekken_notation.py --check-raw         # cobertura sobre todos los raw
+python tools/tekken_notation.py bryan --stances     # posturas del personaje
+python tools/tekken_notation.py bryan --match 17 -10  # qué movimiento encaja
+```
+
+`on_block` / `on_hit` pueden ser un número (`-14`) o una etiqueta cualitativa
+(`KND`, `CH`, `CS`). Si es etiqueta no hay frames que calcular: el HUD la
+publica tal cual y no convierte el tiempo de levantarse en una ventaja.
+
+`--check-raw` recorre los 38 `_raw.json` (5782 entradas) y comprueba que todas
+se parsean: 100 % con estructura válida. Los tokens que no están en el
+vocabulario son abreviaturas de postura propias de cada personaje y se aceptan
+tal cual.
+
 ## Personajes
 
 El motor funciona con **cualquier personaje** aunque no tenga tabla: en ese

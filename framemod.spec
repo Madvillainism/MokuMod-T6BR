@@ -26,6 +26,7 @@ hiddenimports = [
     "mapper",
     "psp_mem",
     "scraper",
+    "tekken_notation",
     "tracker_hybrid",
 ]
 

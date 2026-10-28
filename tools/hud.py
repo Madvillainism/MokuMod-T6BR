@@ -85,6 +85,10 @@ import psp_mem  # noqa: E402
 from learn import Learner  # noqa: E402
 from lookup_engine import FrameTableLookup  # noqa: E402
 from tracker_hybrid import HybridTracker  # noqa: E402
+try:  # la notación es opcional: sin ella el HUD sigue midiendo igual
+    import tekken_notation as tk_notation  # noqa: E402
+except Exception:  # noqa: BLE001 - nunca romper el HUD por una etiqueta
+    tk_notation = None
 
 # ---------------------------------------------------------------- addresses --
 P1 = 0x08C078C0
@@ -152,6 +156,7 @@ C_MINUS = "#FF6D00"
 C_BAD = "#FF1744"
 C_HIT = "#40C4FF"
 C_DIM = "#9E9E9E"
+C_TABLE = "#78909C"      # `on block` / `on hit` de la tabla: dato de catálogo
 C_P1 = "#80CBC4"
 C_P2 = "#FFB74D"
 
@@ -331,11 +336,18 @@ class Tracker:
     def _note(self, key):
         """Notación de una clave de tabla (las de ID se guardan como int)."""
         if key in self.notation:
-            return self.notation[key]
-        try:
-            return self.notation.get(int(key))
-        except (TypeError, ValueError):
+            note = self.notation[key]
+        else:
+            try:
+                note = self.notation.get(int(key))
+            except (TypeError, ValueError):
+                note = None
+        if note is None:
             return None
+        # Forma canónica del catálogo (`DF+3` -> `df+3`, `ws + 2` -> `ws2`):
+        # el nombre no es el dato, pero si se enseña que sea el mismo que usa
+        # la tabla para poder cruzarlos.
+        return tk_notation.label(note) if tk_notation else note
 
     def label_for(self, mid, crouch=False):
         # Unknown characters keep the raw id: the measurement is universal,
@@ -679,11 +691,12 @@ class TrackerThread(threading.Thread):
                  predict=True, block_states=None, hybrid=None, learner=None,
                  data_dir=None, p1_types=None, p2_types=None,
                  crouch_block_states=None, crouch_attack_states=None,
-                 crouch_idle_states=None):
+                 crouch_idle_states=None, show_names=True):
         super().__init__(daemon=True)
         self.out = out
         self.debug = debug
         self.predict = predict
+        self.show_names = show_names
         self.data_dir = data_dir
         self.rd = Reader()
         self.block_states = set(block_states or BLOCK_STATES)
@@ -786,14 +799,22 @@ class TrackerThread(threading.Thread):
 
     # -- output ---------------------------------------------------------
     def emit(self, ev):
+        if not self.show_names:
+            # `--no-names`: el nombre no es el dato; se enseña solo lo medido
+            # y la línea `on block` / `on hit` de la tabla.
+            ev["label"] = ""
         self.out.put(ev)
         if not self.debug:
             return
+        display = ev.get("display")
+        table = ""
+        if display is not None and display.table_str:
+            # `on block` / `on hit` del catálogo, para comparar con lo medido.
+            table = f"  tabla {display.table_str}"
         if ev["phase"] == "start":
-            display = ev.get("display")
             hint = ""
             if display is not None and display.hit_type == "PREDICT":
-                hint = f"  tabla {display.startup_str} {display.advantage_str}"
+                hint = f"  tabla {display.startup_str} {display.table_str or '—'}"
             print(f"  f{ev['frame']:6d} {ev['side']} start  {ev['label']:5s}{hint}",
                   flush=True)
             return
@@ -807,7 +828,7 @@ class TrackerThread(threading.Thread):
         print(
             f"  f{ev['frame']:6d} {ev['side']} {ev['phase']:6s} {ev['label']:5s} "
             f"i{ev['startup']:<3d}{adv:>4} {ev['kind']:5s}{pred}{tag}"
-            f"  [{ev['start']}->{ev['impact']}]",
+            f"  [{ev['start']}->{ev['impact']}]{table}",
             flush=True,
         )
 
@@ -1106,7 +1127,9 @@ def notation_for(char, lookup):
         if not source.endswith("_raw.json"):
             for move_id, info in lookup.tables[key].items():
                 if info.get("notation"):
-                    table[table_key(move_id)] = str(info["notation"])
+                    note = str(info["notation"])
+                    table[table_key(move_id)] = (
+                        tk_notation.label(note) if tk_notation else note)
     return table
 
 
@@ -1214,6 +1237,9 @@ def main():
                     help="personaje de P2 (también se recuerda; 'none' lo borra)")
     ap.add_argument("--no-predict", action="store_true",
                     help="no adelantar el valor medido la última vez")
+    ap.add_argument("--no-names", action="store_true",
+                    help="no enseñar el nombre del movimiento: solo frames "
+                         "medidos + `on block` / `on hit` de la tabla")
     ap.add_argument("--no-table", action="store_true",
                     help="solo telemetría: no proyectar la tabla teórica")
     ap.add_argument("--data-dir", default=None,
@@ -1231,8 +1257,8 @@ def main():
 
     enable_dpi_awareness()
 
-    lock = single_instance()
-    if lock is None:
+    lock = None if a.replay else single_instance()
+    if lock is None and not a.replay:
         print("overlay already running", file=sys.stderr)
         return
 
@@ -1297,6 +1323,7 @@ def main():
         hybrid=hybrid,
         learner=learner,
         data_dir=data_dir,
+        show_names=not a.no_names,
     )
     holder["tracker"] = tracker
     if a.replay:
@@ -1320,7 +1347,7 @@ def main():
                         weight="bold")
     f_small = tkfont.Font(family="Consolas", size=12, weight="bold")
 
-    W, H = 620, 96
+    W, H = 700, 96
     cv = tk.Canvas(root, width=W, height=H, bg=BG_KEY, highlightthickness=0, bd=0)
     cv.pack()
 
@@ -1349,6 +1376,9 @@ def main():
         cell["startup"] = pair(300, y + 21, "", f_big, "#F2F2F2", anchor="e")
         cell["value"] = pair(410, y + 21, "", f_big, C_NEUTRAL, anchor="e")
         cell["kind"] = pair(426, y + 19, "", f_small, C_DIM)
+        # `on block` / `on hit` de la tabla, tal cual: `b-29 hKND`.  Si el
+        # catálogo dice KND no hay frame que calcular y se enseña la etiqueta.
+        cell["table"] = pair(500, y + 19, "", f_small, C_TABLE)
         cell["until"] = 0.0
         cell["punish"] = False
         rows[side] = cell
@@ -1373,10 +1403,15 @@ def main():
         root.update_idletasks()
         make_click_through(root)
 
+    def table_text(display):
+        """`b-29 hKND` (on block / on hit de la tabla) o ""."""
+        return display.table_str if display is not None else ""
+
     def clear(cell):
         for k in ("move", "startup", "value"):
             put(cell[k], "")
         put(cell["kind"], "", C_DIM)
+        put(cell["table"], "", C_TABLE)
         cell["punish"] = False
         cell["until"] = 0.0
 
@@ -1405,6 +1440,7 @@ def main():
                     # Fase 1 del motor híbrido: dato de tabla al instante.
                     cell["punish"] = False
                     put(cell["move"], res.get("label", ""), C_DIM)
+                    put(cell["table"], table_text(display), C_TABLE)
                     if display is not None and display.hit_type == "PREDICT":
                         put(cell["startup"], display.startup_str, C_DIM)
                         put(cell["value"], display.advantage_str, C_DIM)
@@ -1416,6 +1452,7 @@ def main():
                 elif phase == "impact":
                     cell["punish"] = bool(res.get("punish"))
                     put(cell["move"], res.get("label", ""), C_DIM)
+                    put(cell["table"], table_text(display), C_TABLE)
                     startup_txt = display.startup_str if display else f"i{res['startup']}"
                     put(cell["startup"], startup_txt, "#F2F2F2")
                     pred = res.get("predict")
@@ -1434,6 +1471,7 @@ def main():
                     qualitative = (display is not None
                                    and display.hit_type not in
                                    ("HIT", "BLOCK", "PUNISH", "PREDICT", "WAIT"))
+                    put(cell["table"], table_text(display), C_TABLE)
                     if adv is None and res.get("predict") is not None:
                         put(cell["value"], f"~{res['predict']:+d}", C_DIM)
                     else:

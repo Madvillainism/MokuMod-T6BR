@@ -22,6 +22,10 @@ import threading
 
 import game_states
 import mapper
+try:  # la notación es opcional: sin ella se guarda lo que se escriba
+    import tekken_notation as tk_notation
+except Exception:  # noqa: BLE001
+    tk_notation = None
 
 
 class Learner:
@@ -116,11 +120,28 @@ class Learner:
             return
         if not answer:
             return
-        mapper.add_mapping(char, move_id, answer, self.data_dir)
+        note = answer
+        if tk_notation is not None:
+            # Se guarda la forma canónica del catálogo (`DF+3` -> `df+3`) y se
+            # enseña la ficha real antes de fijarla: así se ve si es el golpe
+            # que se está midiendo (startup y on block / on hit).
+            note = tk_notation.label(answer)
+            info = tk_notation.lookup(char, answer, self.data_dir)
+            if info is None:
+                self._say(f"[learn] aviso: {note!r} no está en el catálogo de "
+                          f"{char}; se guarda igual")
+            else:
+                self._say(
+                    "[learn] %s: i%s  b%s  h%s  (%s)" % (
+                        note, info.get("startup"),
+                        tk_notation.frame_text(info.get("on_block")),
+                        tk_notation.frame_text(info.get("on_hit")),
+                        ", ".join(info.get("buttons") or [])))
+        mapper.add_mapping(char, move_id, note, self.data_dir)
         if mapper.compile_character_db(char, self.data_dir, quiet=True):
-            self._say(f"[learn] #{move_id} -> {answer} guardado y compilado")
+            self._say(f"[learn] #{move_id} -> {note} guardado y compilado")
         else:
-            self._say(f"[learn] #{move_id} -> {answer} guardado (sin datos raw todavía)")
+            self._say(f"[learn] #{move_id} -> {note} guardado (sin datos raw todavía)")
         if self.on_change:
             self.on_change("move", char)
 

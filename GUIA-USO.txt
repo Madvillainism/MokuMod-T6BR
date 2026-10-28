@@ -84,6 +84,52 @@ sale con "overlay already running".
     python tools/hud.py --p1-char bryan --learn
         Aprende IDs de movimientos nuevos: cuando aparece un id desconocido,
         pregunta la notacion por consola (Enter = omitir) y guarda el mapeo.
+        Antes de guardar ensena la ficha real del golpe (i27, b-29, hKND,
+        botones) para que veas si es el que estas midiendo.
+
+    python tools/hud.py --no-names
+        Quita el nombre del movimiento del HUD: deja solo los frames medidos y
+        la linea de tabla "on block / on hit".
+
+--------------------------------------------------------------
+ 2b. Que significa cada dato de la fila
+--------------------------------------------------------------
+    P1  df+3    i27   -29   BLOCK   b-29 hKND
+
+    movimiento  notacion canonica del catalogo (o #id si no esta mapeado)
+    i27         startup medido (contador de animacion en el frame de contacto)
+    -29         ventaja medida en ese contacto
+    BLOCK/HIT   el rival bloqueo o comio el golpe
+    b-29 hKND   on block y on hit DE LA TABLA, tal cual
+
+Si el "on hit" de la tabla es una etiqueta (KND = derribo, CH = counter,
+CS = queda agachado), no se calculan frames: se ensena la etiqueta.
+
+Botones de la PSP en notacion Tekken:
+    cuadrado = 1    triangulo = 2    cruz = 3    circulo = 4
+    f/b/u/d = adelante/atras/arriba/abajo, df = abajo+adelante
+    qcf/qcb = cuarto de circulo adelante/atras, ws = levantandose,
+    FC = agachado. Mayuscula = mantener.
+
+Para consultar un movimiento suelto, sin el HUD:
+
+    python tools/tekken_notation.py bryan df+3
+
+--------------------------------------------------------------
+ 2c. Identificar un movimiento que sale como #id
+--------------------------------------------------------------
+El HUD mide igual aunque no sepa el nombre. Para saber cual es:
+
+    python tools/tekken_notation.py bryan --match 27 -29
+
+Busca en el catalogo los movimientos cuyo startup y on block encajan con lo
+que acabas de medir. Si no coincide ninguno, prueba solo con la ventaja
+(un numero suelto = on block):
+
+    python tools/tekken_notation.py bryan --match -29
+
+Y para fijarlo al ID, arranca el HUD con --learn y escribe la notacion
+(df+3, qcb+3, FC.4...) cuando pregunte.
 
 --------------------------------------------------------------
  3. Panel de ajustes (F8)

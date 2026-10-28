@@ -198,7 +198,35 @@ P2   1     i10   +8   PUNISH    ← el dummy te castigó
   sin la etiqueta.
 - **`KND` / etiquetas cualitativas**: si el golpe derriba, no se publica un
   número (el tiempo de levantarse no es una ventaja real): verás `i18 — KND`.
+- **Línea de tabla** (a la derecha, en gris): `b−29 hKND` es el `on block` y el
+  `on hit` del catálogo para ese movimiento, tal cual. Si el `on hit` es una
+  etiqueta (`KND`, `CH`, `CS`), se enseña la etiqueta y **no** se calculan
+  frames. El número grande sigue siendo lo medido en tu partida; la línea de
+  tabla dice qué debería ser.
 - El panel **borra** el resultado a los 5 segundos sin actividad.
+
+---
+
+## 7.1 Notación y botones
+
+Los movimientos se escriben con la notación Tekken de siempre, y cada número es
+un botón de la PSP:
+
+| Botón | Notación | Nombre |
+|---|---|---|
+| Cuadrado | `1` | puñetazo izquierdo (LP) |
+| Triángulo | `2` | puñetazo derecho (RP) |
+| Cruz | `3` | patada izquierda (LK) |
+| Círculo | `4` | patada derecha (RK) |
+
+`f`/`b`/`u`/`d` son adelante/atrás/arriba/abajo, `df` es abajo+adelante,
+`qcf`/`qcb` son cuartos de círculo, `ws` es "levantándose" y `FC` agachado.
+`1+2` es a la vez y `1,2` es uno detrás de otro.
+
+Si el panel enseña un `#id` es que ese movimiento aún no está en la tabla local:
+el HUD lo mide igual, pero no puede enseñar su nombre ni su `on block` /
+`on hit`. `--learn` lo añade (y antes de guardar te enseña la ficha real para
+que compruebes que es el golpe que estás midiendo).
 
 ---
 
@@ -343,6 +371,7 @@ reiniciar el HUD.
 | `tools/scraper.py` | descarga frame data pública → `data/raw/<pj>_raw.json` |
 | `tools/mapper.py` | compila `raw/` + `mappings/` → `data/compiled/<pj>.json` |
 | `tools/lookup_engine.py` | búsqueda O(1) Move ID → frame data |
+| `tools/tekken_notation.py` | notación Tekken ↔ botones de PSP ↔ catálogo `data/raw` |
 | `tools/tracker_hybrid.py` | proyección de tabla + confirmación por memoria |
 | `tools/learn.py` | modo `--learn`: aprende IDs y estados de guardia |
 | `tools/game_states.py` | gestión de `data/states.json` |
